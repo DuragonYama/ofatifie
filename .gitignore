@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+backend/venv/
+*.db
+*.db.backup
+*.sqlite3
+
+# Environment
+.env
+*.log
+
+# Music files
+music/uploads/*
+music/library/*
+music/temp/*
+!music/uploads/.gitkeep
+!music/library/.gitkeep
+!music/temp/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore

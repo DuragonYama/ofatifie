@@ -1,0 +1,47 @@
+"""
+Main FastAPI application
+Music Streaming App Backend
+"""
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.config import get_settings
+from app.routers import tracks
+
+settings = get_settings()
+
+# Create FastAPI app
+app = FastAPI(
+    title=settings.app_name,
+    debug=settings.debug,
+    version="1.0.0"
+)
+
+# CORS middleware (allow frontend to connect)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify your frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Register routers
+app.include_router(tracks.router)
+
+@app.get("/")
+def root():
+    """Health check endpoint"""
+    return {
+        "app": settings.app_name,
+        "status": "running",
+        "version": "1.0.0",
+        "message": "ofatifie API"
+    }
+
+@app.get("/health")
+def health_check():
+    """Detailed health check"""
+    return {
+        "status": "healthy",
+        "database": "connected"
+    }

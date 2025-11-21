@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: music-streaming-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./music:/app/music
+      - ./logs:/app/logs
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+    networks:
+      - music-network
+
+  # Future: Add frontend, redis, postgres, etc.
+  
+networks:
+  music-network:
+    driver: bridge
+
+volumes:
+  music-data:
