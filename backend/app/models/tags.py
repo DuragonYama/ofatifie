@@ -38,6 +38,7 @@ class SongTag(Base):
     
     # Relationships
     tag = relationship("Tag", back_populates="song_tags")
+    liked_song = relationship("LikedSong", back_populates="song_tags")  # ← ADD THIS LINE
 
 class GlobalTag(Base):
     """Global tags (visible to all users, community-driven)"""

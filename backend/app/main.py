@@ -1,11 +1,11 @@
 """
 Main FastAPI application
-Music Streaming App Backend
+ofatifie - Music Streaming App Backend
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
-from app.routers import tracks
+from app.routers import tracks, auth  # ← Added auth here
 
 settings = get_settings()
 
@@ -27,6 +27,7 @@ app.add_middleware(
 
 # Register routers
 app.include_router(tracks.router)
+app.include_router(auth.router)  # ← Added this line
 
 @app.get("/")
 def root():
