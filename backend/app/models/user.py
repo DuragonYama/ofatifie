@@ -15,7 +15,7 @@ class User(Base):
     display_name = Column(String(100))
     avatar_path = Column(String(500))
     bio = Column(Text)
-    storage_quota_mb = Column(Integer, default=5000)  # 5GB default
+    storage_quota_mb = Column(Integer, default=30000)  # 30GB default
     storage_used_mb = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
