@@ -5,7 +5,7 @@ ofatifie - Music Streaming App Backend
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
-from app.routers import tracks, auth  # ← Added auth here
+from app.routers import tracks, auth, admin 
 
 settings = get_settings()
 
@@ -28,6 +28,7 @@ app.add_middleware(
 # Register routers
 app.include_router(tracks.router)
 app.include_router(auth.router)  # ← Added this line
+app.include_router(admin.router)
 
 @app.get("/")
 def root():
