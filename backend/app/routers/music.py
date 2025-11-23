@@ -27,6 +27,7 @@ from jose import JWTError, jwt
 from app.config import get_settings
 
 from app.utils.spotdl import download_from_spotify, parse_spotify_url
+from app.utils.ytdlp import download_from_youtube, parse_youtube_url
 
 settings = get_settings()
 router = APIRouter(prefix="/music", tags=["music"])
@@ -509,3 +510,136 @@ def get_cover_art(
     
     # Return the image
     return FileResponse(cover_path, media_type="image/jpeg")
+
+@router.post("/download/youtube", status_code=status.HTTP_202_ACCEPTED)
+async def download_from_youtube_url(
+    youtube_url: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Download music from YouTube URL
+    
+    - Supports: YouTube videos, YouTube Music
+    - Downloads audio only via yt-dlp
+    - Processes same as manual upload (hash, metadata, dedupe)
+    - Updates storage quota
+    
+    Returns immediately with status
+    """
+    
+    # Validate YouTube URL
+    try:
+        parsed = parse_youtube_url(youtube_url)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    
+    # Create temp download directory
+    temp_dir = Path("uploads/temp_downloads")
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        # Download from YouTube
+        file_info = download_from_youtube(
+            youtube_url=youtube_url,
+            output_dir=str(temp_dir),
+            format='mp3'
+        )
+        
+        file_path = Path(file_info['file_path'])
+        
+        if not file_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Download failed - file not found"
+            )
+        
+        # Get file size
+        file_size_mb = get_file_size_mb(str(file_path))
+        
+        # Check storage quota
+        if current_user.storage_used_mb + file_size_mb > current_user.storage_quota_mb:
+            file_path.unlink()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Storage quota exceeded. Used: {current_user.storage_used_mb}MB / {current_user.storage_quota_mb}MB"
+            )
+        
+        # Calculate file hash
+        file_hash = calculate_file_hash(str(file_path))
+        
+        # Check for duplicates
+        existing_track = db.query(Track).filter(Track.song_hash == file_hash).first()
+        if existing_track:
+            file_path.unlink()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"This track already exists: {existing_track.title}"
+            )
+        
+        # Extract metadata
+        metadata = extract_metadata(str(file_path))
+        title = metadata.get('title') or file_info['title']
+        
+        # Move to permanent location
+        music_dir = Path("uploads/music")
+        music_dir.mkdir(parents=True, exist_ok=True)
+        
+        file_ext = file_path.suffix
+        sanitized_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
+        final_filename = f"{file_hash[:12]}_{sanitized_title}{file_ext}"
+        final_path = music_dir / final_filename
+        
+        file_path.rename(final_path)
+        
+        # Create track in database
+        new_track = Track(
+            title=title,
+            duration=metadata.get('duration_seconds', 0),
+            file_size_mb=file_size_mb,
+            song_hash=file_hash,
+            audio_path=str(final_path),
+            bitrate=metadata.get('bitrate_kbps'),
+            format=file_ext[1:].lower() if file_ext else None,
+            uploaded_by_id=current_user.id
+        )
+        
+        db.add(new_track)
+        
+        # Update user's storage
+        current_user.storage_used_mb += file_size_mb
+        
+        db.commit()
+        db.refresh(new_track)
+        
+        # Extract cover art
+        covers_dir = Path("uploads/covers")
+        covers_dir.mkdir(parents=True, exist_ok=True)
+        cover_filename = f"cover_{new_track.id}.jpg"
+        cover_path_obj = covers_dir / cover_filename
+        
+        extracted_cover = extract_cover_art(str(final_path), str(cover_path_obj))
+        if extracted_cover:
+            new_track.cover_path = str(cover_path_obj)
+            db.commit()
+        
+        return {
+            'message': 'Download completed',
+            'youtube_url': youtube_url,
+            'track': {
+                'id': new_track.id,
+                'title': new_track.title,
+                'file_size_mb': float(file_size_mb)
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Download failed: {str(e)}"
+        )
