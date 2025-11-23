@@ -13,6 +13,8 @@ from mutagen.flac import FLAC
 from mutagen.mp4 import MP4
 from mutagen.oggvorbis import OggVorbis
 from mutagen.wave import WAVE
+from PIL import Image
+import io
 
 def calculate_file_hash(file_path: str) -> str:
     """
@@ -145,3 +147,64 @@ def validate_audio_file(filename: str) -> tuple[bool, Optional[str]]:
 def get_file_size_mb(file_path: str) -> float:
     """Get file size in megabytes"""
     return Path(file_path).stat().st_size / (1024 * 1024)
+
+def extract_cover_art(file_path: str, output_path: str) -> Optional[str]:
+    """
+    Extract embedded cover art from audio file
+    
+    Args:
+        file_path: Path to audio file
+        output_path: Path to save cover image (e.g., 'cover_1.jpg')
+    
+    Returns:
+        Path to saved cover image, or None if no cover found
+    """
+    try:
+        audio = MutagenFile(file_path)
+        
+        if audio is None:
+            return None
+        
+        cover_data = None
+        
+        # MP3 (ID3 tags)
+        if isinstance(audio, MP3):
+            for tag in audio.tags.values():
+                if hasattr(tag, 'mime') and 'image' in tag.mime:
+                    cover_data = tag.data
+                    break
+        
+        # FLAC
+        elif isinstance(audio, FLAC):
+            if audio.pictures:
+                cover_data = audio.pictures[0].data
+        
+        # M4A/MP4
+        elif isinstance(audio, MP4):
+            if 'covr' in audio.tags:
+                cover_data = audio.tags['covr'][0]
+        
+        # OGG Vorbis
+        elif isinstance(audio, OggVorbis):
+            if 'metadata_block_picture' in audio:
+                import base64
+                pic_data = base64.b64decode(audio['metadata_block_picture'][0])
+                # Parse FLAC picture block (skip for now - complex)
+                return None
+        
+        # Save cover image
+        if cover_data:
+            # Open image and save as JPEG
+            image = Image.open(io.BytesIO(cover_data))
+            # Convert to RGB if needed (handles PNG with transparency)
+            if image.mode in ('RGBA', 'LA', 'P'):
+                image = image.convert('RGB')
+            
+            image.save(output_path, 'JPEG', quality=90)
+            return output_path
+        
+        return None
+        
+    except Exception as e:
+        print(f"Cover art extraction failed: {e}")
+        return None
