@@ -127,3 +127,136 @@ def get_orphaned_tracks(db: Session):
         })
     
     return result
+
+def get_or_create_artist(db: Session, artist_name: str):
+    """
+    Get existing artist or create new one
+    
+    Args:
+        db: Database session
+        artist_name: Artist name from metadata
+        
+    Returns:
+        Artist object or None
+    """
+    from app.models.music import Artist
+    
+    if not artist_name:
+        return None
+    
+    # Clean up artist name
+    artist_name = artist_name.strip()
+    
+    # Check if artist exists (case-insensitive)
+    artist = db.query(Artist).filter(
+        Artist.name.ilike(artist_name)
+    ).first()
+    
+    if not artist:
+        # Create new artist
+        artist = Artist(name=artist_name)
+        db.add(artist)
+        db.flush()  # Get ID without committing
+    
+    return artist
+
+def get_or_create_album(
+    db: Session,
+    album_title: str,
+    year: int = None,
+    artist_name: str = None
+):
+    """
+    Get existing album or create new one
+    
+    Args:
+        db: Database session
+        album_title: Album name from metadata
+        year: Release year
+        artist_name: Primary artist name (for matching)
+        
+    Returns:
+        Album object or None
+    """
+    from app.models.music import Album, AlbumArtist
+    
+    if not album_title:
+        return None
+    
+    # Clean up album title
+    album_title = album_title.strip()
+    
+    # Check if album exists (by name, case-insensitive)
+    album = db.query(Album).filter(
+        Album.name.ilike(album_title)  # Changed from title to name
+    ).first()
+    
+    if not album:
+        # Create new album
+        album = Album(
+            name=album_title,  # Changed from title to name
+            release_year=year
+        )
+        db.add(album)
+        db.flush()  # Get ID without committing
+        
+        # Link artist to album if provided
+        if artist_name:
+            artist = get_or_create_artist(db, artist_name)
+            if artist:
+                album_artist = AlbumArtist(
+                    album_id=album.id,
+                    artist_id=artist.id
+                )
+                db.add(album_artist)
+    
+    return album
+
+def link_track_to_album_and_artists(
+    db: Session,
+    track: Track,
+    metadata: dict
+) -> None:
+    """
+    Link track to album and artists based on metadata
+    
+    Args:
+        db: Database session
+        track: Track object
+        metadata: Metadata dict with 'album', 'artist', 'year'
+    """
+    from app.models.music import TrackArtist
+    
+    album_title = metadata.get('album')
+    artist_name = metadata.get('artist')
+    year = metadata.get('year')
+    
+    # Convert year string to int if needed
+    if year and isinstance(year, str):
+        try:
+            year = int(year[:4])  # Take first 4 digits
+        except:
+            year = None
+    
+    # Create/link album
+    if album_title:
+        album = get_or_create_album(db, album_title, year, artist_name)
+        if album:
+            track.album_id = album.id
+    
+    # Create/link artist
+    if artist_name:
+        artist = get_or_create_artist(db, artist_name)
+        if artist:
+            # Check if track-artist link already exists
+            existing = db.query(TrackArtist).filter(
+                TrackArtist.track_id == track.id,
+                TrackArtist.artist_id == artist.id
+            ).first()
+            
+            if not existing:
+                track_artist = TrackArtist(
+                    track_id=track.id,
+                    artist_id=artist.id
+                )
+                db.add(track_artist)

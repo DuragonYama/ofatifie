@@ -28,6 +28,7 @@ from app.config import get_settings
 
 from app.utils.spotdl import download_from_spotify, parse_spotify_url
 from app.utils.ytdlp import download_from_youtube, parse_youtube_url
+from app.utils.library import link_track_to_album_and_artists
 
 settings = get_settings()
 router = APIRouter(prefix="/music", tags=["music"])
@@ -129,6 +130,9 @@ async def upload_track(
         
         db.commit()
         db.refresh(new_track)
+
+        link_track_to_album_and_artists(db, new_track, metadata)
+        db.commit()
         
         # Extract cover art after track is created (need track.id)
         covers_dir = Path("uploads/covers")
@@ -427,6 +431,7 @@ async def download_from_spotify_url(
                 # Commit to get track ID, then extract cover
                 db.flush()  # Get ID without full commit
                 
+                link_track_to_album_and_artists(db, new_track, metadata)
                 # Extract cover art
                 covers_dir = Path("uploads/covers")
                 covers_dir.mkdir(parents=True, exist_ok=True)
@@ -615,6 +620,8 @@ async def download_from_youtube_url(
         db.commit()
         db.refresh(new_track)
         
+        link_track_to_album_and_artists(db, new_track, metadata)
+        db.commit()
         # Extract cover art
         covers_dir = Path("uploads/covers")
         covers_dir.mkdir(parents=True, exist_ok=True)
