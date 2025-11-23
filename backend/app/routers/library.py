@@ -1,15 +1,15 @@
 """
 User library management (liked songs, saved albums)
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 
 from app.database import get_db
 from app.auth import get_current_user
 from app.models.user import User
-from app.models.music import Track, Album
+from app.models.music import Track, Album, Artist, TrackArtist
 from app.models.playlist import LikedSong, UserLibraryItem
 from app.schemas.track import TrackResponse
 from app.schemas.album import AlbumWithArtists
@@ -191,4 +191,93 @@ def get_library_stats(
         "saved_albums": saved_albums_count,
         "storage_used_mb": float(current_user.storage_used_mb),
         "storage_quota_mb": current_user.storage_quota_mb
+    }
+
+@router.get("/items")
+def get_library_items(
+    skip: int = 0,
+    limit: int = 50,
+    item_type: Optional[str] = Query(None, description="Filter by: songs, albums, or all"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get user's complete library (liked songs + saved albums)
+    
+    - item_type: 'songs', 'albums', or None for all
+    - Returns combined list with type indicator
+    - Ordered by most recently added
+    """
+    from app.models.music import Artist, AlbumArtist
+    
+    result = []
+    
+    # Get liked songs
+    if item_type in [None, 'songs']:
+        liked_songs = db.query(LikedSong, Track).join(
+            Track, LikedSong.track_id == Track.id
+        ).filter(
+            LikedSong.user_id == current_user.id
+        ).order_by(
+            LikedSong.liked_at.desc()
+        ).all()
+        
+        for liked, track in liked_songs:
+            # Get artists for this track
+            artists = db.query(Artist).join(
+                TrackArtist, TrackArtist.artist_id == Artist.id
+            ).filter(
+                TrackArtist.track_id == track.id
+            ).all()
+            
+            result.append({
+                'type': 'song',
+                'id': track.id,
+                'title': track.title,
+                'artists': [artist.name for artist in artists],
+                'duration': track.duration,
+                'cover_path': track.cover_path,
+                'added_at': liked.liked_at,
+                'play_count': track.play_count
+            })
+    
+    # Get saved albums
+    if item_type in [None, 'albums']:
+        saved_albums = db.query(UserLibraryItem, Album).join(
+            Album, UserLibraryItem.item_id == Album.id
+        ).filter(
+            UserLibraryItem.user_id == current_user.id,
+            UserLibraryItem.item_type == 'album'
+        ).order_by(
+            UserLibraryItem.added_at.desc()
+        ).all()
+        
+        for lib_item, album in saved_albums:
+            # Get artists for this album
+            artists = db.query(Artist).join(
+                AlbumArtist, AlbumArtist.artist_id == Artist.id
+            ).filter(
+                AlbumArtist.album_id == album.id
+            ).all()
+            
+            result.append({
+                'type': 'album',
+                'id': album.id,
+                'title': album.name,
+                'artists': [artist.name for artist in artists],
+                'release_year': album.release_year,
+                'cover_path': album.cover_path,
+                'added_at': lib_item.added_at,
+                'total_tracks': album.total_tracks
+            })
+    
+    # Sort all items by added_at (most recent first)
+    result.sort(key=lambda x: x['added_at'], reverse=True)
+    
+    # Paginate
+    paginated = result[skip:skip + limit]
+    
+    return {
+        'total': len(result),
+        'items': paginated
     }
