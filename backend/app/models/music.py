@@ -22,16 +22,16 @@ class Album(Base):
     __tablename__ = "albums"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(255), nullable=False)
+    name = Column(String(255), nullable=False, index=True)  # ← ADD index=True
     artist_id = Column(Integer, ForeignKey("artists.id"))
     cover_path = Column(String(500))
     release_year = Column(Integer)
     genre = Column(String(100))
     total_tracks = Column(Integer)
-    album_type = Column(String(20), default='album')  # album, single, EP, compilation
+    album_type = Column(String(20), default='album')
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    deleted_at = Column(DateTime(timezone=True), nullable=True)  # Soft delete
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)  # ← ADD index=True
     
     # Relationships
     artists = relationship("AlbumArtist", back_populates="album")
@@ -56,24 +56,24 @@ class Track(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String(255), nullable=False, index=True)
     album_id = Column(Integer, ForeignKey("albums.id"))
-    duration = Column(Integer)  # seconds
+    duration = Column(Integer)
     track_number = Column(Integer)
     disc_number = Column(Integer, default=1)
-    year = Column(Integer)
-    genre = Column(String(100))
-    song_hash = Column(String(64), unique=True, nullable=False, index=True)  # Prevent duplicates
+    year = Column(Integer, index=True)  # ← ADD index=True
+    genre = Column(String(100), index=True)  # ← ADD index=True
+    song_hash = Column(String(64), unique=True, nullable=False, index=True)
     audio_path = Column(String(500), nullable=False)
     cover_path = Column(String(500))
     file_size_mb = Column(Numeric(10, 2))
     bitrate = Column(Integer)
-    format = Column(String(10))  # mp3, flac, opus
-    play_count = Column(Integer, default=0)
+    format = Column(String(10))
+    play_count = Column(Integer, default=0, index=True)  # ← ADD index=True
     imported_from_id = Column(Integer, ForeignKey("import_requests.id"))
     uploaded_by_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)  # ← ADD index=True
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    deleted_at = Column(DateTime(timezone=True), nullable=True)  # Soft delete
-    last_in_library = Column(DateTime(timezone=True), nullable=True)  # NEW: When last user removed it
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)  # ← ADD index=True
+    last_in_library = Column(DateTime(timezone=True), nullable=True)
     
     # Relationships
     album = relationship("Album", back_populates="tracks")

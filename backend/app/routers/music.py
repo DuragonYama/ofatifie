@@ -120,7 +120,9 @@ async def upload_track(
             audio_path=str(final_path),
             bitrate=bitrate_val,
             format=file_ext[1:].lower() if file_ext else None,
-            uploaded_by_id=current_user.id
+            uploaded_by_id=current_user.id,
+            year=metadata.get('year'),  
+            genre=metadata.get('genre')  
         )
         
         db.add(new_track)
@@ -420,7 +422,9 @@ async def download_from_spotify_url(
                     audio_path=str(final_path),
                     bitrate=metadata.get('bitrate_kbps'),
                     format=file_ext[1:].lower() if file_ext else None,
-                    uploaded_by_id=current_user.id
+                    uploaded_by_id=current_user.id,
+                    year=metadata.get('year'), 
+                    genre=metadata.get('genre') 
                 )
                 
                 db.add(new_track)
@@ -609,7 +613,9 @@ async def download_from_youtube_url(
             audio_path=str(final_path),
             bitrate=metadata.get('bitrate_kbps'),
             format=file_ext[1:].lower() if file_ext else None,
-            uploaded_by_id=current_user.id
+            uploaded_by_id=current_user.id,
+            year=metadata.get('year'),
+            genre=metadata.get('genre')  
         )
         
         db.add(new_track)
