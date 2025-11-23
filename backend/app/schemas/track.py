@@ -41,3 +41,15 @@ class TrackMetadata(BaseModel):
     bitrate_kbps: Optional[int] = None  # Keep this for internal use
     file_size_mb: float
     file_hash: str  # Keep this for internal use
+
+class TrackUpdate(BaseModel):
+    """Schema for updating track metadata"""
+    title: Optional[str] = Field(None, min_length=1, max_length=255)
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "title": "New Song Title"
+            }
+        }
+    )

@@ -10,7 +10,7 @@ from app.database import get_db
 from app.auth import get_current_user
 from app.models.user import User
 from app.models.music import Track
-from app.schemas.track import TrackUploadResponse, TrackResponse
+from app.schemas.track import TrackUploadResponse, TrackResponse, TrackUpdate
 from app.utils.audio import (
     validate_audio_file, 
     extract_metadata, 
@@ -642,4 +642,120 @@ async def download_from_youtube_url(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Download failed: {str(e)}"
+        )
+    
+@router.patch("/tracks/{track_id}", response_model=TrackResponse)
+def update_track(
+    track_id: int,
+    track_update: TrackUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update track metadata (title only)
+    
+    - Only track owner or DEVELOPER can edit
+    """
+    # Get track
+    track = db.query(Track).filter(Track.id == track_id).first()
+    
+    if not track:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Track not found"
+        )
+    
+    # Check permissions (owner or developer)
+    if track.uploaded_by_id != current_user.id and current_user.role != "DEVELOPER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only edit your own tracks"
+        )
+    
+    # Update title if provided
+    if track_update.title:
+        track.title = track_update.title
+    
+    db.commit()
+    db.refresh(track)
+    
+    return track
+
+@router.post("/tracks/{track_id}/cover", status_code=status.HTTP_200_OK)
+async def upload_track_cover(
+    track_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload or replace track cover art
+    
+    - Accepts: jpg, jpeg, png, webp
+    - Max size: 5MB (FastAPI default)
+    - Only track owner or DEVELOPER can edit
+    """
+    # Get track
+    track = db.query(Track).filter(Track.id == track_id).first()
+    
+    if not track:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Track not found"
+        )
+    
+    # Check permissions
+    if track.uploaded_by_id != current_user.id and current_user.role != "DEVELOPER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only edit your own tracks"
+        )
+    
+    # Validate file type
+    allowed_types = ["image/jpeg", "image/jpg", "image/png", "image/webp"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file type. Allowed: jpg, png, webp"
+        )
+    
+    # Create covers directory
+    covers_dir = Path("uploads/covers")
+    covers_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Delete old cover if exists
+    if track.cover_path:
+        old_cover = Path(track.cover_path)
+        if old_cover.exists():
+            old_cover.unlink()
+    
+    # Save new cover as cover_{track_id}.jpg
+    cover_filename = f"cover_{track_id}.jpg"
+    cover_path = covers_dir / cover_filename
+    
+    try:
+        # Save uploaded file
+        with cover_path.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Convert to JPEG if needed (using PIL)
+        from PIL import Image
+        img = Image.open(cover_path)
+        if img.mode in ('RGBA', 'LA', 'P'):
+            img = img.convert('RGB')
+        img.save(cover_path, 'JPEG', quality=90)
+        
+        # Update track
+        track.cover_path = str(cover_path)
+        db.commit()
+        
+        return {
+            "message": "Cover art updated successfully",
+            "cover_path": str(cover_path)
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save cover art: {str(e)}"
         )
