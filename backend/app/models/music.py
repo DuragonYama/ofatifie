@@ -67,6 +67,7 @@ class Track(Base):
     file_size_mb = Column(Numeric(10, 2))
     bitrate = Column(Integer)
     format = Column(String(10))  # mp3, flac, opus
+    play_count = Column(Integer, default=0)
     imported_from_id = Column(Integer, ForeignKey("import_requests.id"))
     uploaded_by_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())

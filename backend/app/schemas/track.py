@@ -29,6 +29,7 @@ class TrackResponse(BaseModel):
     bitrate: Optional[int] = None  # Changed from bitrate_kbps
     uploaded_by_id: int
     created_at: datetime  # Changed from uploaded_at
+    play_count: int = 0
     
     model_config = ConfigDict(from_attributes=True)
 
