@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.routers import tracks, auth, admin
-from app.routers import tracks, auth, admin, music, playback, albums, library, search
+from app.routers import tracks, auth, admin, music, playback, albums, library, search, playlists
 
 settings = get_settings()
 
@@ -35,6 +35,7 @@ app.include_router(playback.router)
 app.include_router(albums.router)
 app.include_router(library.router)
 app.include_router(search.router)
+app.include_router(playlists.router)
 
 @app.get("/")
 def root():
