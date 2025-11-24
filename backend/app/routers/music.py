@@ -319,99 +319,178 @@ def list_tracks(
     return tracks
 
 @router.post("/download/spotify", status_code=status.HTTP_202_ACCEPTED)
-async def download_from_spotify_url(
+async def download_from_spotify(
     spotify_url: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Download music from Spotify URL
+    Download from Spotify URL (track, album, or playlist)
     
-    - Supports: tracks, albums, playlists
-    - Downloads via spotdl (uses YouTube as source)
-    - Processes same as manual upload (hash, metadata, dedupe)
-    - Updates storage quota
+    - Single tracks: Downloads and auto-likes
+    - Playlists: Creates matching playlist with all tracks
+    - Albums: Downloads all tracks and saves to library
     
-    Returns immediately with status - downloads process in background
+    Returns:
+    - tracks: List of successfully downloaded tracks
+    - skipped_tracks: List of tracks that were duplicates
+    - playlist: Created playlist info (if URL was playlist)
+    - album: Saved album info (if URL was album)
     """
+    import subprocess
+    import json
+    import hashlib
+    from pathlib import Path
+    from mutagen import File as MutagenFile
+    from app.utils.library import link_track_to_album_and_artists
+    from app.models.playlist import Playlist, PlaylistSong, LikedSong, UserLibraryItem
+    from app.models.music import Album
     
-    # Validate Spotify URL
-    try:
-        parsed = parse_spotify_url(spotify_url)
-    except ValueError as e:
+    # Check storage quota
+    if current_user.storage_used_mb >= current_user.storage_quota_mb:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Storage quota exceeded"
         )
     
-    # Create temp download directory
+    # Detect URL type (track, playlist, album)
+    is_playlist = '/playlist/' in spotify_url
+    is_album = '/album/' in spotify_url
+    is_track = '/track/' in spotify_url
+    
+    # Create temp directory
     temp_dir = Path("uploads/temp_downloads")
     temp_dir.mkdir(parents=True, exist_ok=True)
     
     try:
-        # Download from Spotify
-        downloaded_files = download_from_spotify(
-            spotify_url=spotify_url,
-            output_dir=str(temp_dir),
-            format='mp3'
+        # Get metadata using spotdl
+        result = subprocess.run(
+            ['spotdl', spotify_url, '--output', str(temp_dir)],
+            capture_output=True,
+            text=True,
+            timeout=300
         )
+        
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"spotdl failed: {result.stderr}"
+            )
+        
+        # Get playlist metadata if it's a playlist
+        playlist_name = None
+        playlist_description = None
+        created_playlist = None
+        
+        if is_playlist:
+            # Extract playlist info from spotdl output or URL
+            # spotdl saves playlists with their name, we can parse from files or use spotify API
+            # For now, let's use a simple approach with the URL
+            try:
+                # Get playlist name from spotdl's output directory structure
+                # or extract from metadata
+                playlist_result = subprocess.run(
+                    ['spotdl', spotify_url, '--save-file', str(temp_dir / 'playlist_info.json'), '--format', 'json'],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                
+                # Parse playlist name from URL as fallback
+                playlist_name = spotify_url.split('/playlist/')[-1].split('?')[0]
+                playlist_name = f"Spotify Playlist {playlist_name[:8]}"  # Fallback name
+                
+            except:
+                playlist_name = "Imported Spotify Playlist"
+            
+            # Create playlist in database
+            created_playlist = Playlist(
+                name=playlist_name,
+                description=f"Imported from Spotify: {spotify_url}",
+                owner_id=current_user.id,
+                is_collaborative=False
+            )
+            db.add(created_playlist)
+            db.commit()
+            db.refresh(created_playlist)
+        
+        # Process downloaded files
+        downloaded_files = sorted(list(temp_dir.glob("*.mp3")), key=lambda x: x.name)
         
         if not downloaded_files:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="No tracks downloaded - URL may be invalid or region-locked"
+                detail="No files downloaded"
             )
         
-        # Process each downloaded file
         processed_tracks = []
         skipped_tracks = []
+        position = 1.0
         
-        for file_info in downloaded_files:
-            file_path = Path(file_info['file_path'])
-            
-            if not file_path.exists():
-                continue
-            
+        for audio_file in downloaded_files:
             try:
-                # Get file size
-                file_size_mb = get_file_size_mb(str(file_path))
+                # Extract metadata
+                audio = MutagenFile(audio_file, easy=True)
                 
-                # Check storage quota
-                if current_user.storage_used_mb + file_size_mb > current_user.storage_quota_mb:
-                    file_path.unlink()  # Delete file
-                    skipped_tracks.append({
-                        'title': file_info['title'],
-                        'reason': 'Storage quota exceeded'
-                    })
-                    continue
+                title = audio.get('title', [audio_file.stem])[0] if audio else audio_file.stem
                 
-                # Calculate file hash
-                file_hash = calculate_file_hash(str(file_path))
+                metadata = {
+                    'title': title,
+                    'artist': audio.get('artist', ['Unknown'])[0] if audio else 'Unknown',
+                    'album': audio.get('album', ['Unknown'])[0] if audio else 'Unknown',
+                    'year': audio.get('date', [None])[0] if audio else None,
+                    'genre': audio.get('genre', [None])[0] if audio else None,
+                    'duration_seconds': int(audio.info.length) if audio and hasattr(audio, 'info') else 0,
+                    'bitrate_kbps': int(audio.info.bitrate / 1000) if audio and hasattr(audio, 'info') and hasattr(audio.info, 'bitrate') else None
+                }
+                
+                # Calculate hash
+                hasher = hashlib.sha256()
+                with open(audio_file, 'rb') as f:
+                    hasher.update(f.read())
+                file_hash = hasher.hexdigest()
                 
                 # Check for duplicates
-                existing_track = db.query(Track).filter(Track.song_hash == file_hash).first()
-                if existing_track:
-                    file_path.unlink()  # Delete duplicate
+                existing = db.query(Track).filter(Track.song_hash == file_hash).first()
+                if existing:
                     skipped_tracks.append({
-                        'title': file_info['title'],
-                        'reason': f'Duplicate of: {existing_track.title}'
+                        'title': title,
+                        'reason': 'Already in library'
                     })
+                    audio_file.unlink()
+                    
+                    # Still add to playlist if this was a playlist download
+                    if created_playlist:
+                        # Check if already in this playlist
+                        already_in_playlist = db.query(PlaylistSong).filter(
+                            PlaylistSong.playlist_id == created_playlist.id,
+                            PlaylistSong.track_id == existing.id
+                        ).first()
+                        
+                        if not already_in_playlist:
+                            playlist_song = PlaylistSong(
+                                playlist_id=created_playlist.id,
+                                track_id=existing.id,
+                                position=position,
+                                added_by_id=current_user.id
+                            )
+                            db.add(playlist_song)
+                            position += 1.0
+                            db.commit()
+                    
                     continue
                 
-                # Extract metadata
-                metadata = extract_metadata(str(file_path))
-                title = metadata.get('title') or file_info['title']
-                
-                # Move to permanent location
+                # Move to permanent storage
                 music_dir = Path("uploads/music")
                 music_dir.mkdir(parents=True, exist_ok=True)
                 
-                file_ext = file_path.suffix
-                sanitized_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-                final_filename = f"{file_hash[:12]}_{sanitized_title}{file_ext}"
+                final_filename = f"{file_hash[:12]}_{title[:50]}.mp3"
                 final_path = music_dir / final_filename
                 
-                file_path.rename(final_path)
+                audio_file.rename(final_path)
+                
+                # Calculate file size
+                file_size_mb = final_path.stat().st_size / (1024 * 1024)
                 
                 # Create track in database
                 new_track = Track(
@@ -421,10 +500,10 @@ async def download_from_spotify_url(
                     song_hash=file_hash,
                     audio_path=str(final_path),
                     bitrate=metadata.get('bitrate_kbps'),
-                    format=file_ext[1:].lower() if file_ext else None,
+                    format='mp3',
                     uploaded_by_id=current_user.id,
-                    year=metadata.get('year'), 
-                    genre=metadata.get('genre') 
+                    year=metadata.get('year'),
+                    genre=metadata.get('genre')
                 )
                 
                 db.add(new_track)
@@ -433,51 +512,129 @@ async def download_from_spotify_url(
                 current_user.storage_used_mb += file_size_mb
                 
                 # Commit to get track ID, then extract cover
-                db.flush()  # Get ID without full commit
+                db.flush()
                 
+                # Link to album and artists
                 link_track_to_album_and_artists(db, new_track, metadata)
+                
                 # Extract cover art
                 covers_dir = Path("uploads/covers")
                 covers_dir.mkdir(parents=True, exist_ok=True)
                 cover_filename = f"cover_{new_track.id}.jpg"
-                cover_path_obj = covers_dir / cover_filename
+                cover_path = covers_dir / cover_filename
                 
-                extracted_cover = extract_cover_art(str(final_path), str(cover_path_obj))
+                extracted_cover = extract_cover_art(str(final_path), str(cover_path))
                 if extracted_cover:
-                    new_track.cover_path = str(cover_path_obj)
+                    new_track.cover_path = str(cover_path)
+                
+                db.commit()
+                db.refresh(new_track)
+                
+                # Add to playlist if this was a playlist download
+                if created_playlist:
+                    playlist_song = PlaylistSong(
+                        playlist_id=created_playlist.id,
+                        track_id=new_track.id,
+                        position=position,
+                        added_by_id=current_user.id
+                    )
+                    db.add(playlist_song)
+                    position += 1.0
+                
+                # Auto-like if single track download
+                elif is_track:
+                    liked_song = LikedSong(
+                        user_id=current_user.id,
+                        track_id=new_track.id
+                    )
+                    db.add(liked_song)
+                
+                db.commit()
                 
                 processed_tracks.append({
                     'id': new_track.id,
-                    'title': new_track.title,
-                    'file_size_mb': float(file_size_mb)
+                    'title': title,
+                    'file_size_mb': round(file_size_mb, 2)
                 })
                 
             except Exception as e:
-                # Clean up on error
-                if file_path.exists():
-                    file_path.unlink()
-                skipped_tracks.append({
-                    'title': file_info.get('title', 'Unknown'),
-                    'reason': str(e)
-                })
+                print(f"Error processing {audio_file}: {e}")
+                if audio_file.exists():
+                    audio_file.unlink()
+                continue
         
-        # Commit all tracks at once
-        db.commit()
+        # Save album to user's library if this was an album download
+        if is_album and processed_tracks:
+            # Get the album ID from the first processed track
+            first_track = db.query(Track).filter(Track.id == processed_tracks[0]['id']).first()
+            if first_track and first_track.album_id:
+                # Check if already in library
+                existing_lib_item = db.query(UserLibraryItem).filter(
+                    UserLibraryItem.user_id == current_user.id,
+                    UserLibraryItem.item_type == 'album',
+                    UserLibraryItem.item_id == first_track.album_id
+                ).first()
+                
+                if not existing_lib_item:
+                    library_item = UserLibraryItem(
+                        user_id=current_user.id,
+                        item_type='album',
+                        item_id=first_track.album_id
+                    )
+                    db.add(library_item)
+                    db.commit()
         
-        return {
+        # Clean up temp directory
+        for file in temp_dir.iterdir():
+            if file.is_file():
+                file.unlink()
+        
+        # Build response
+        response = {
             'message': 'Download completed',
             'spotify_url': spotify_url,
-            'type': parsed['type'],
+            'type': 'playlist' if is_playlist else 'album' if is_album else 'track',
             'processed': len(processed_tracks),
             'skipped': len(skipped_tracks),
             'tracks': processed_tracks,
             'skipped_tracks': skipped_tracks
         }
         
+        # Add playlist info if applicable
+        if created_playlist:
+            response['playlist'] = {
+                'id': created_playlist.id,
+                'name': created_playlist.name,
+                'track_count': len(processed_tracks)
+            }
+        
+        # Add album info if applicable
+        if is_album and processed_tracks:
+            first_track = db.query(Track).filter(Track.id == processed_tracks[0]['id']).first()
+            if first_track and first_track.album_id:
+                album = db.query(Album).filter(Album.id == first_track.album_id).first()
+                if album:
+                    response['album_saved'] = True
+                    response['album'] = {
+                        'id': album.id,
+                        'name': album.name
+                    }
+        
+        # Add auto-like info if applicable
+        if is_track and processed_tracks:
+            response['auto_liked'] = True
+        
+        return response
+        
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Download timed out"
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Download failed: {str(e)}"
+            detail=str(e)
         )
     
 @router.get("/cover/{track_id}")
@@ -521,140 +678,294 @@ def get_cover_art(
     return FileResponse(cover_path, media_type="image/jpeg")
 
 @router.post("/download/youtube", status_code=status.HTTP_202_ACCEPTED)
-async def download_from_youtube_url(
+async def download_from_youtube(
     youtube_url: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Download music from YouTube URL
+    Download from YouTube URL (video or playlist)
     
-    - Supports: YouTube videos, YouTube Music
-    - Downloads audio only via yt-dlp
-    - Processes same as manual upload (hash, metadata, dedupe)
-    - Updates storage quota
+    - Single videos: Downloads and auto-likes
+    - Playlists: Creates matching playlist with all tracks
     
-    Returns immediately with status
+    Returns:
+    - tracks: List of successfully downloaded tracks
+    - skipped_tracks: List of tracks that were duplicates
+    - playlist: Created playlist info (if URL was playlist)
     """
+    import subprocess
+    import json
+    import hashlib
+    from pathlib import Path
+    from mutagen import File as MutagenFile
+    from app.utils.library import link_track_to_album_and_artists
+    from app.models.playlist import Playlist, PlaylistSong, LikedSong
     
-    # Validate YouTube URL
-    try:
-        parsed = parse_youtube_url(youtube_url)
-    except ValueError as e:
+    # Check storage quota
+    if current_user.storage_used_mb >= current_user.storage_quota_mb:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Storage quota exceeded"
         )
     
-    # Create temp download directory
+    # Detect if playlist or single video
+    is_playlist = 'playlist' in youtube_url or 'list=' in youtube_url
+    
+    # Create temp directory
     temp_dir = Path("uploads/temp_downloads")
     temp_dir.mkdir(parents=True, exist_ok=True)
     
     try:
-        # Download from YouTube
-        file_info = download_from_youtube(
-            youtube_url=youtube_url,
-            output_dir=str(temp_dir),
-            format='mp3'
+        # Download with yt-dlp
+        command = [
+            'yt-dlp',
+            '-x',  # Extract audio
+            '--audio-format', 'mp3',
+            '--audio-quality', '0',  # Best quality
+            '--embed-thumbnail',
+            '--add-metadata',
+            '-o', str(temp_dir / '%(title)s.%(ext)s'),
+            youtube_url
+        ]
+        
+        if is_playlist:
+            command.insert(1, '--yes-playlist')
+        else:
+            command.insert(1, '--no-playlist')
+        
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=300
         )
         
-        file_path = Path(file_info['file_path'])
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"yt-dlp failed: {result.stderr}"
+            )
         
-        if not file_path.exists():
+        # Get playlist name if it's a playlist
+        created_playlist = None
+        playlist_name = None
+        
+        if is_playlist:
+            # Extract playlist title using yt-dlp
+            try:
+                playlist_info_result = subprocess.run(
+                    ['yt-dlp', '--dump-json', '--playlist-items', '1', youtube_url],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                
+                if playlist_info_result.returncode == 0:
+                    info = json.loads(playlist_info_result.stdout.split('\n')[0])
+                    playlist_name = info.get('playlist_title', 'YouTube Playlist')
+                else:
+                    playlist_name = "YouTube Playlist"
+                    
+            except:
+                playlist_name = "YouTube Playlist"
+            
+            # Create playlist in database
+            created_playlist = Playlist(
+                name=playlist_name,
+                description=f"Imported from YouTube: {youtube_url}",
+                owner_id=current_user.id,
+                is_collaborative=False
+            )
+            db.add(created_playlist)
+            db.commit()
+            db.refresh(created_playlist)
+        
+        # Process downloaded files
+        downloaded_files = sorted(list(temp_dir.glob("*.mp3")), key=lambda x: x.name)
+        
+        if not downloaded_files:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Download failed - file not found"
+                detail="No files downloaded"
             )
         
-        # Get file size
-        file_size_mb = get_file_size_mb(str(file_path))
+        processed_tracks = []
+        skipped_tracks = []
+        position = 1.0
         
-        # Check storage quota
-        if current_user.storage_used_mb + file_size_mb > current_user.storage_quota_mb:
-            file_path.unlink()
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Storage quota exceeded. Used: {current_user.storage_used_mb}MB / {current_user.storage_quota_mb}MB"
-            )
+        for audio_file in downloaded_files:
+            try:
+                # Extract metadata
+                audio = MutagenFile(audio_file, easy=True)
+                
+                title = audio.get('title', [audio_file.stem])[0] if audio else audio_file.stem
+                
+                metadata = {
+                    'title': title,
+                    'artist': audio.get('artist', ['Unknown'])[0] if audio else 'Unknown',
+                    'album': audio.get('album', [None])[0] if audio else None,
+                    'year': audio.get('date', [None])[0] if audio else None,
+                    'genre': audio.get('genre', [None])[0] if audio else None,
+                    'duration_seconds': int(audio.info.length) if audio and hasattr(audio, 'info') else 0,
+                    'bitrate_kbps': int(audio.info.bitrate / 1000) if audio and hasattr(audio, 'info') and hasattr(audio.info, 'bitrate') else None
+                }
+                
+                # Calculate hash
+                hasher = hashlib.sha256()
+                with open(audio_file, 'rb') as f:
+                    hasher.update(f.read())
+                file_hash = hasher.hexdigest()
+                
+                # Check for duplicates
+                existing = db.query(Track).filter(Track.song_hash == file_hash).first()
+                if existing:
+                    skipped_tracks.append({
+                        'title': title,
+                        'reason': 'Already in library'
+                    })
+                    audio_file.unlink()
+                    
+                    # Still add to playlist if this was a playlist download
+                    if created_playlist:
+                        # Check if already in this playlist
+                        already_in_playlist = db.query(PlaylistSong).filter(
+                            PlaylistSong.playlist_id == created_playlist.id,
+                            PlaylistSong.track_id == existing.id
+                        ).first()
+                        
+                        if not already_in_playlist:
+                            playlist_song = PlaylistSong(
+                                playlist_id=created_playlist.id,
+                                track_id=existing.id,
+                                position=position,
+                                added_by_id=current_user.id
+                            )
+                            db.add(playlist_song)
+                            position += 1.0
+                            db.commit()
+                    
+                    continue
+                
+                # Move to permanent storage
+                music_dir = Path("uploads/music")
+                music_dir.mkdir(parents=True, exist_ok=True)
+                
+                final_filename = f"{file_hash[:12]}_{title[:50]}.mp3"
+                final_path = music_dir / final_filename
+                
+                audio_file.rename(final_path)
+                
+                # Calculate file size
+                file_size_mb = final_path.stat().st_size / (1024 * 1024)
+                
+                # Create track in database
+                new_track = Track(
+                    title=title,
+                    duration=metadata.get('duration_seconds', 0),
+                    file_size_mb=file_size_mb,
+                    song_hash=file_hash,
+                    audio_path=str(final_path),
+                    bitrate=metadata.get('bitrate_kbps'),
+                    format='mp3',
+                    uploaded_by_id=current_user.id,
+                    year=metadata.get('year'),
+                    genre=metadata.get('genre')
+                )
+                
+                db.add(new_track)
+                
+                # Update user's storage
+                current_user.storage_used_mb += file_size_mb
+                
+                db.commit()
+                db.refresh(new_track)
+                
+                # Link to album and artists
+                link_track_to_album_and_artists(db, new_track, metadata)
+                db.commit()
+                
+                # Extract cover art
+                covers_dir = Path("uploads/covers")
+                covers_dir.mkdir(parents=True, exist_ok=True)
+                cover_filename = f"cover_{new_track.id}.jpg"
+                cover_path = covers_dir / cover_filename
+                
+                if audio and hasattr(audio, 'pictures') and audio.pictures:
+                    with open(cover_path, 'wb') as img_file:
+                        img_file.write(audio.pictures[0].data)
+                    new_track.cover_path = str(cover_path)
+                    db.commit()
+                
+                # Add to playlist if this was a playlist download
+                if created_playlist:
+                    playlist_song = PlaylistSong(
+                        playlist_id=created_playlist.id,
+                        track_id=new_track.id,
+                        position=position,
+                        added_by_id=current_user.id
+                    )
+                    db.add(playlist_song)
+                    position += 1.0
+                
+                # Auto-like if single video download
+                elif not is_playlist:
+                    liked_song = LikedSong(
+                        user_id=current_user.id,
+                        track_id=new_track.id
+                    )
+                    db.add(liked_song)
+                
+                db.commit()
+                
+                processed_tracks.append({
+                    'id': new_track.id,
+                    'title': title,
+                    'file_size_mb': round(file_size_mb, 2)
+                })
+                
+            except Exception as e:
+                print(f"Error processing {audio_file}: {e}")
+                if audio_file.exists():
+                    audio_file.unlink()
+                continue
         
-        # Calculate file hash
-        file_hash = calculate_file_hash(str(file_path))
+        # Clean up temp directory
+        for file in temp_dir.iterdir():
+            if file.is_file():
+                file.unlink()
         
-        # Check for duplicates
-        existing_track = db.query(Track).filter(Track.song_hash == file_hash).first()
-        if existing_track:
-            file_path.unlink()
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"This track already exists: {existing_track.title}"
-            )
-        
-        # Extract metadata
-        metadata = extract_metadata(str(file_path))
-        title = metadata.get('title') or file_info['title']
-        
-        # Move to permanent location
-        music_dir = Path("uploads/music")
-        music_dir.mkdir(parents=True, exist_ok=True)
-        
-        file_ext = file_path.suffix
-        sanitized_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-        final_filename = f"{file_hash[:12]}_{sanitized_title}{file_ext}"
-        final_path = music_dir / final_filename
-        
-        file_path.rename(final_path)
-        
-        # Create track in database
-        new_track = Track(
-            title=title,
-            duration=metadata.get('duration_seconds', 0),
-            file_size_mb=file_size_mb,
-            song_hash=file_hash,
-            audio_path=str(final_path),
-            bitrate=metadata.get('bitrate_kbps'),
-            format=file_ext[1:].lower() if file_ext else None,
-            uploaded_by_id=current_user.id,
-            year=metadata.get('year'),
-            genre=metadata.get('genre')  
-        )
-        
-        db.add(new_track)
-        
-        # Update user's storage
-        current_user.storage_used_mb += file_size_mb
-        
-        db.commit()
-        db.refresh(new_track)
-        
-        link_track_to_album_and_artists(db, new_track, metadata)
-        db.commit()
-        # Extract cover art
-        covers_dir = Path("uploads/covers")
-        covers_dir.mkdir(parents=True, exist_ok=True)
-        cover_filename = f"cover_{new_track.id}.jpg"
-        cover_path_obj = covers_dir / cover_filename
-        
-        extracted_cover = extract_cover_art(str(final_path), str(cover_path_obj))
-        if extracted_cover:
-            new_track.cover_path = str(cover_path_obj)
-            db.commit()
-        
-        return {
+        response = {
             'message': 'Download completed',
             'youtube_url': youtube_url,
-            'track': {
-                'id': new_track.id,
-                'title': new_track.title,
-                'file_size_mb': float(file_size_mb)
-            }
+            'type': 'playlist' if is_playlist else 'video',
+            'processed': len(processed_tracks),
+            'skipped': len(skipped_tracks),
+            'tracks': processed_tracks,
+            'skipped_tracks': skipped_tracks
         }
         
-    except HTTPException:
-        raise
+        if created_playlist:
+            response['playlist'] = {
+                'id': created_playlist.id,
+                'name': created_playlist.name,
+                'track_count': len(processed_tracks)
+            }
+        
+        if not is_playlist and processed_tracks:
+            response['auto_liked'] = True
+        
+        return response
+        
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Download timed out"
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Download failed: {str(e)}"
+            detail=str(e)
         )
     
 @router.patch("/tracks/{track_id}", response_model=TrackResponse)
