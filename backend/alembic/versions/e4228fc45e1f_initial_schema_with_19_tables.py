@@ -62,6 +62,8 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['artist_id'], ['artists.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_albums_deleted_at'), 'albums', ['deleted_at'], unique=False)
+    op.create_index(op.f('ix_albums_name'), 'albums', ['name'], unique=False)
     op.create_table('global_tags',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('name', sa.String(length=50), nullable=False),
@@ -150,6 +152,7 @@ def upgrade() -> None:
     sa.Column('file_size_mb', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('bitrate', sa.Integer(), nullable=True),
     sa.Column('format', sa.String(length=10), nullable=True),
+    sa.Column('play_count', sa.Integer(), nullable=True),
     sa.Column('imported_from_id', sa.Integer(), nullable=True),
     sa.Column('uploaded_by_id', sa.Integer(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
@@ -161,15 +164,19 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['uploaded_by_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_tracks_created_at'), 'tracks', ['created_at'], unique=False)
+    op.create_index(op.f('ix_tracks_deleted_at'), 'tracks', ['deleted_at'], unique=False)
+    op.create_index(op.f('ix_tracks_genre'), 'tracks', ['genre'], unique=False)
+    op.create_index(op.f('ix_tracks_play_count'), 'tracks', ['play_count'], unique=False)
     op.create_index(op.f('ix_tracks_song_hash'), 'tracks', ['song_hash'], unique=True)
     op.create_index(op.f('ix_tracks_title'), 'tracks', ['title'], unique=False)
+    op.create_index(op.f('ix_tracks_year'), 'tracks', ['year'], unique=False)
     op.create_table('global_song_tags',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('track_id', sa.Integer(), nullable=False),
     sa.Column('global_tag_id', sa.Integer(), nullable=False),
     sa.Column('applied_by_id', sa.Integer(), nullable=True),
     sa.Column('applied_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
-    sa.Column('votes', sa.Integer(), nullable=True),
     sa.ForeignKeyConstraint(['applied_by_id'], ['users.id'], ),
     sa.ForeignKeyConstraint(['global_tag_id'], ['global_tags.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['track_id'], ['tracks.id'], ondelete='CASCADE'),
@@ -251,7 +258,8 @@ def upgrade() -> None:
     sa.Column('tag_id', sa.Integer(), nullable=False),
     sa.Column('tagged_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
     sa.ForeignKeyConstraint(['tag_id'], ['tags.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['user_id', 'track_id'], ['liked_songs.user_id', 'liked_songs.track_id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['track_id'], ['tracks.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     # ### end Alembic commands ###
@@ -269,8 +277,13 @@ def downgrade() -> None:
     op.drop_table('lyrics')
     op.drop_table('liked_songs')
     op.drop_table('global_song_tags')
+    op.drop_index(op.f('ix_tracks_year'), table_name='tracks')
     op.drop_index(op.f('ix_tracks_title'), table_name='tracks')
     op.drop_index(op.f('ix_tracks_song_hash'), table_name='tracks')
+    op.drop_index(op.f('ix_tracks_play_count'), table_name='tracks')
+    op.drop_index(op.f('ix_tracks_genre'), table_name='tracks')
+    op.drop_index(op.f('ix_tracks_deleted_at'), table_name='tracks')
+    op.drop_index(op.f('ix_tracks_created_at'), table_name='tracks')
     op.drop_table('tracks')
     op.drop_table('playlist_collaborators')
     op.drop_table('album_artists')
@@ -279,6 +292,8 @@ def downgrade() -> None:
     op.drop_table('playlists')
     op.drop_table('import_requests')
     op.drop_table('global_tags')
+    op.drop_index(op.f('ix_albums_name'), table_name='albums')
+    op.drop_index(op.f('ix_albums_deleted_at'), table_name='albums')
     op.drop_table('albums')
     op.drop_index(op.f('ix_users_username'), table_name='users')
     op.drop_index(op.f('ix_users_email'), table_name='users')

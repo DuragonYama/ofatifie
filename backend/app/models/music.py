@@ -22,7 +22,7 @@ class Album(Base):
     __tablename__ = "albums"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(255), nullable=False, index=True)  # ← ADD index=True
+    name = Column(String(255), nullable=False, index=True)
     artist_id = Column(Integer, ForeignKey("artists.id"))
     cover_path = Column(String(500))
     release_year = Column(Integer)
@@ -31,7 +31,7 @@ class Album(Base):
     album_type = Column(String(20), default='album')
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)  # ← ADD index=True
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
     
     # Relationships
     artists = relationship("AlbumArtist", back_populates="album")
@@ -59,20 +59,20 @@ class Track(Base):
     duration = Column(Integer)
     track_number = Column(Integer)
     disc_number = Column(Integer, default=1)
-    year = Column(Integer, index=True)  # ← ADD index=True
-    genre = Column(String(100), index=True)  # ← ADD index=True
+    year = Column(Integer, index=True)
+    genre = Column(String(100), index=True)
     song_hash = Column(String(64), unique=True, nullable=False, index=True)
     audio_path = Column(String(500), nullable=False)
     cover_path = Column(String(500))
     file_size_mb = Column(Numeric(10, 2))
     bitrate = Column(Integer)
     format = Column(String(10))
-    play_count = Column(Integer, default=0, index=True)  # ← ADD index=True
+    play_count = Column(Integer, default=0, index=True)
     imported_from_id = Column(Integer, ForeignKey("import_requests.id"))
     uploaded_by_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)  # ← ADD index=True
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)  # ← ADD index=True
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
     last_in_library = Column(DateTime(timezone=True), nullable=True)
     
     # Relationships
@@ -81,6 +81,7 @@ class Track(Base):
     lyrics = relationship("Lyrics", back_populates="track", uselist=False)
     playlists = relationship("PlaylistSong", back_populates="track")
     liked_by = relationship("LikedSong", back_populates="track")
+    personal_tags = relationship("SongTag", back_populates="track")  # ← ADDED
     global_tags = relationship("GlobalSongTag", back_populates="track")
 
 class TrackArtist(Base):

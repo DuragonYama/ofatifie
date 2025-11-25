@@ -70,4 +70,3 @@ class LikedSong(Base):
     # Relationships
     user = relationship("User", back_populates="liked_songs")
     track = relationship("Track", back_populates="liked_by")
-    song_tags = relationship("SongTag", back_populates="liked_song", cascade="all, delete-orphan")
