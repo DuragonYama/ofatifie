@@ -29,6 +29,7 @@ from app.config import get_settings
 from app.utils.spotdl import download_from_spotify, parse_spotify_url
 from app.utils.ytdlp import download_from_youtube, parse_youtube_url
 from app.utils.library import link_track_to_album_and_artists
+from app.utils.tagging import apply_tag_to_track, apply_global_tag_to_track
 
 settings = get_settings()
 router = APIRouter(prefix="/music", tags=["music"])
@@ -36,6 +37,8 @@ router = APIRouter(prefix="/music", tags=["music"])
 @router.post("/upload", response_model=TrackUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_track(
     file: UploadFile = File(...),
+    tag_id: Optional[int] = None,
+    global_tag_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -146,6 +149,12 @@ async def upload_track(
         if extracted_cover:
             new_track.cover_path = str(cover_path)
             db.commit()
+
+        if tag_id:
+            apply_tag_to_track(db, new_track.id, tag_id, current_user.id)
+
+        if global_tag_id:
+            apply_global_tag_to_track(db, new_track.id, global_tag_id, current_user.id)
         
         # Build response manually to avoid any attribute issues
         response = TrackUploadResponse(
@@ -155,7 +164,7 @@ async def upload_track(
             file_size_mb=float(new_track.file_size_mb),
             song_hash=new_track.song_hash,
             audio_path=new_track.audio_path,
-            message="Track uploaded successfully"
+            message=f"Track uploaded successfully{' and tagged' if tag_id or global_tag_id else ''}"
         )
         
         return response
@@ -321,6 +330,8 @@ def list_tracks(
 @router.post("/download/spotify", status_code=status.HTTP_202_ACCEPTED)
 async def download_from_spotify(
     spotify_url: str,
+    tag_id: Optional[int] = None,
+    global_tag_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -330,6 +341,7 @@ async def download_from_spotify(
     - Single tracks: Downloads and auto-likes
     - Playlists: Creates matching playlist with all tracks
     - Albums: Downloads all tracks and saves to library
+    - Optional: Apply tag to all downloaded/duplicate tracks
     
     Returns:
     - tracks: List of successfully downloaded tracks
@@ -459,6 +471,13 @@ async def download_from_spotify(
                     })
                     audio_file.unlink()
                     
+                    # Apply tag to duplicate if provided
+                    if tag_id:
+                        apply_tag_to_track(db, existing.id, tag_id, current_user.id)
+
+                    if global_tag_id:
+                        apply_global_tag_to_track(db, existing.id, global_tag_id, current_user.id)
+                    
                     # Still add to playlist if this was a playlist download
                     if created_playlist:
                         # Check if already in this playlist
@@ -529,6 +548,13 @@ async def download_from_spotify(
                 
                 db.commit()
                 db.refresh(new_track)
+
+                # Apply tag to new track if provided
+                if tag_id:
+                    apply_tag_to_track(db, new_track.id, tag_id, current_user.id)
+
+                if global_tag_id:
+                    apply_global_tag_to_track(db, new_track.id, global_tag_id, current_user.id)
                 
                 # Add to playlist if this was a playlist download
                 if created_playlist:
@@ -624,6 +650,13 @@ async def download_from_spotify(
         if is_track and processed_tracks:
             response['auto_liked'] = True
         
+        # Add tagging info if applicable
+        if tag_id or global_tag_id:
+            if tag_id:
+                response['personal_tag_id'] = tag_id
+            if global_tag_id:
+                response['global_tag_id'] = global_tag_id
+        
         return response
         
     except subprocess.TimeoutExpired:
@@ -680,6 +713,8 @@ def get_cover_art(
 @router.post("/download/youtube", status_code=status.HTTP_202_ACCEPTED)
 async def download_from_youtube(
     youtube_url: str,
+    tag_id: Optional[int] = None,
+    global_tag_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -688,6 +723,7 @@ async def download_from_youtube(
     
     - Single videos: Downloads and auto-likes
     - Playlists: Creates matching playlist with all tracks
+    - Optional: Apply tag to all downloaded/duplicate tracks
     
     Returns:
     - tracks: List of successfully downloaded tracks
@@ -826,13 +862,19 @@ async def download_from_youtube(
                     })
                     audio_file.unlink()
                     
+                    # Apply tag to duplicate if provided
+                    if tag_id:
+                        apply_tag_to_track(db, existing.id, tag_id, current_user.id)
+                    if global_tag_id:
+                        apply_global_tag_to_track(db, existing.id, global_tag_id, current_user.id)
+                    
                     # Still add to playlist if this was a playlist download
                     if created_playlist:
                         # Check if already in this playlist
                         already_in_playlist = db.query(PlaylistSong).filter(
                             PlaylistSong.playlist_id == created_playlist.id,
                             PlaylistSong.track_id == existing.id
-                        ).first()
+                        ).first()   
                         
                         if not already_in_playlist:
                             playlist_song = PlaylistSong(
@@ -897,6 +939,12 @@ async def download_from_youtube(
                     new_track.cover_path = str(cover_path)
                     db.commit()
                 
+                # Apply tag to new track if provided
+                if tag_id:
+                    apply_tag_to_track(db, new_track.id, tag_id, current_user.id)
+                if global_tag_id:
+                    apply_global_tag_to_track(db, new_track.id, global_tag_id, current_user.id)
+                
                 # Add to playlist if this was a playlist download
                 if created_playlist:
                     playlist_song = PlaylistSong(
@@ -954,6 +1002,14 @@ async def download_from_youtube(
         
         if not is_playlist and processed_tracks:
             response['auto_liked'] = True
+        
+        # Add tagging info if applicable
+        if tag_id or global_tag_id:
+            response['tagged'] = True
+            if tag_id:
+                response['personal_tag_id'] = tag_id
+            if global_tag_id:
+                response['global_tag_id'] = global_tag_id
         
         return response
         
