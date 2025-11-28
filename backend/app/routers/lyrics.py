@@ -49,8 +49,18 @@ def fetch_lyrics(
     
     If lyrics already exist, they will be replaced with new ones
     """
-    # Check if track exists
-    track = db.query(Track).filter(Track.id == track_id, Track.deleted_at.is_(None)).first()
+    from app.config import get_settings  # ← ADD THIS
+    from sqlalchemy.orm import joinedload
+    from app.models.music import TrackArtist
+    
+    settings = get_settings()  # ← ADD THIS
+    
+    # Check if track exists and load relationships
+    track = db.query(Track).options(
+        joinedload(Track.artists).joinedload(TrackArtist.artist),
+        joinedload(Track.album)
+    ).filter(Track.id == track_id, Track.deleted_at.is_(None)).first()
+    
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
     
@@ -58,7 +68,7 @@ def fetch_lyrics(
     if request.source == "lrclib":
         lyrics_data = fetch_from_lrclib(track)
     elif request.source == "genius":
-        lyrics_data = fetch_from_genius(track)
+        lyrics_data = fetch_from_genius(track, settings.genius_access_token)  # ← ADD TOKEN HERE!
     else:
         raise HTTPException(status_code=400, detail="Invalid source. Use 'lrclib' or 'genius'")
     
@@ -241,3 +251,54 @@ def delete_lyrics(
     db.commit()
     
     return {"message": "Lyrics deleted successfully"}
+
+@router.get("/test-genius-token")
+def test_genius_token(
+    current_user: User = Depends(get_current_user)
+):
+    """Test if Genius token is loaded"""
+    from app.config import get_settings
+    settings = get_settings()
+    
+    return {
+        "token_configured": bool(settings.genius_access_token),
+        "token_length": len(settings.genius_access_token) if settings.genius_access_token else 0
+    }
+@router.get("/debug-genius/{track_id}")
+def debug_genius_fetch(
+    track_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Debug Genius API fetch"""
+    from app.utils.lyrics_fetcher import fetch_from_genius
+    from app.config import get_settings
+    from sqlalchemy.orm import joinedload
+    from app.models.music import TrackArtist  # Import this!
+    
+    settings = get_settings()
+    
+    # Get track with relationships
+    track = db.query(Track).options(
+        joinedload(Track.artists).joinedload(TrackArtist.artist),  # ← Fixed!
+        joinedload(Track.album)
+    ).filter(Track.id == track_id).first()
+    
+    if not track:
+        return {"error": "Track not found"}
+    
+    # Get track info
+    title = track.title
+    artist_name = track.artists[0].artist.name if track.artists else "Unknown"
+    
+    # Try to fetch
+    result = fetch_from_genius(track, settings.genius_access_token)
+    
+    return {
+        "track_id": track_id,
+        "title": title,
+        "artist": artist_name,
+        "genius_token_present": bool(settings.genius_access_token),
+        "fetch_result": "Found lyrics" if result else "No lyrics found",
+        "result": result
+    }

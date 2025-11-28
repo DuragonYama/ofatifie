@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from typing import Optional
 
 class Settings(BaseSettings):
     # App
@@ -29,6 +30,9 @@ class Settings(BaseSettings):
     # Rate Limiting
     rate_limit_requests: int = 100
     rate_limit_period: int = 60
+    
+    # Genius API (optional)
+    genius_access_token: Optional[str] = None
     
     class Config:
         env_file = ".env"

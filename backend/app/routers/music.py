@@ -161,7 +161,9 @@ async def upload_track(
         # Auto-fetch lyrics (silent fail - doesn't block upload)
         try:
             from app.utils.lyrics_fetcher import save_lyrics_for_track
-            db.refresh(new_track)  # Ensure track has all relationships loaded
+            # Explicitly load relationships by accessing them
+            _ = new_track.artists
+            _ = new_track.album
             save_lyrics_for_track(db, new_track)
         except Exception as e:
             # Log but don't fail the upload
@@ -495,7 +497,9 @@ async def download_from_spotify(
                     # Try to fetch lyrics for duplicate if not already present
                     try:
                         from app.utils.lyrics_fetcher import save_lyrics_for_track
-                        db.refresh(existing)
+                        # Explicitly load relationships
+                        _ = existing.artists
+                        _ = existing.album
                         save_lyrics_for_track(db, existing)
                     except Exception as e:
                         import logging
