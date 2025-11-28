@@ -3,6 +3,7 @@ Music upload and management endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
+from app.models.music import Track, Lyrics
 from pathlib import Path
 import shutil
 
@@ -50,6 +51,7 @@ async def upload_track(
     - Checks for duplicates via file hash
     - Enforces storage quota
     - Saves to filesystem and database
+    - Auto-fetches lyrics if available
     """
     
     # Validate file type
@@ -155,6 +157,17 @@ async def upload_track(
 
         if global_tag_id:
             apply_global_tag_to_track(db, new_track.id, global_tag_id, current_user.id)
+        
+        # Auto-fetch lyrics (silent fail - doesn't block upload)
+        try:
+            from app.utils.lyrics_fetcher import save_lyrics_for_track
+            db.refresh(new_track)  # Ensure track has all relationships loaded
+            save_lyrics_for_track(db, new_track)
+        except Exception as e:
+            # Log but don't fail the upload
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to auto-fetch lyrics for track {new_track.id}: {e}")
         
         # Build response manually to avoid any attribute issues
         response = TrackUploadResponse(
@@ -342,6 +355,7 @@ async def download_from_spotify(
     - Playlists: Creates matching playlist with all tracks
     - Albums: Downloads all tracks and saves to library
     - Optional: Apply tag to all downloaded/duplicate tracks
+    - Auto-fetches lyrics for all tracks
     
     Returns:
     - tracks: List of successfully downloaded tracks
@@ -478,6 +492,16 @@ async def download_from_spotify(
                     if global_tag_id:
                         apply_global_tag_to_track(db, existing.id, global_tag_id, current_user.id)
                     
+                    # Try to fetch lyrics for duplicate if not already present
+                    try:
+                        from app.utils.lyrics_fetcher import save_lyrics_for_track
+                        db.refresh(existing)
+                        save_lyrics_for_track(db, existing)
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"Failed to auto-fetch lyrics for duplicate track {existing.id}: {e}")
+                    
                     # Still add to playlist if this was a playlist download
                     if created_playlist:
                         # Check if already in this playlist
@@ -555,6 +579,15 @@ async def download_from_spotify(
 
                 if global_tag_id:
                     apply_global_tag_to_track(db, new_track.id, global_tag_id, current_user.id)
+                
+                # Auto-fetch lyrics for new track (silent fail - doesn't block download)
+                try:
+                    from app.utils.lyrics_fetcher import save_lyrics_for_track
+                    save_lyrics_for_track(db, new_track)
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Failed to auto-fetch lyrics for track {new_track.id}: {e}")
                 
                 # Add to playlist if this was a playlist download
                 if created_playlist:
@@ -724,6 +757,7 @@ async def download_from_youtube(
     - Single videos: Downloads and auto-likes
     - Playlists: Creates matching playlist with all tracks
     - Optional: Apply tag to all downloaded/duplicate tracks
+    - Auto-fetches lyrics for all tracks
     
     Returns:
     - tracks: List of successfully downloaded tracks
@@ -868,6 +902,16 @@ async def download_from_youtube(
                     if global_tag_id:
                         apply_global_tag_to_track(db, existing.id, global_tag_id, current_user.id)
                     
+                    # Try to fetch lyrics for duplicate if not already present
+                    try:
+                        from app.utils.lyrics_fetcher import save_lyrics_for_track
+                        db.refresh(existing)
+                        save_lyrics_for_track(db, existing)
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"Failed to auto-fetch lyrics for duplicate track {existing.id}: {e}")
+                    
                     # Still add to playlist if this was a playlist download
                     if created_playlist:
                         # Check if already in this playlist
@@ -944,6 +988,15 @@ async def download_from_youtube(
                     apply_tag_to_track(db, new_track.id, tag_id, current_user.id)
                 if global_tag_id:
                     apply_global_tag_to_track(db, new_track.id, global_tag_id, current_user.id)
+                
+                # Auto-fetch lyrics for new track (silent fail - doesn't block download)
+                try:
+                    from app.utils.lyrics_fetcher import save_lyrics_for_track
+                    save_lyrics_for_track(db, new_track)
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Failed to auto-fetch lyrics for track {new_track.id}: {e}")
                 
                 # Add to playlist if this was a playlist download
                 if created_playlist:

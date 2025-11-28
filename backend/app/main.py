@@ -5,7 +5,7 @@ ofatifie - Music Streaming App Backend
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
-from app.routers import tracks, auth, admin, music, playback, albums, library, search, playlists, tags
+from app.routers import tracks, auth, admin, music, playback, albums, library, search, playlists, tags, lyrics
 
 settings = get_settings()
 
@@ -35,7 +35,8 @@ app.include_router(albums.router)
 app.include_router(library.router)
 app.include_router(search.router)
 app.include_router(playlists.router)
-app.include_router(tags.router)  # ← Added tags router
+app.include_router(tags.router)
+app.include_router(lyrics.router)
 
 @app.get("/")
 def root():
