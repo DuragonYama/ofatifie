@@ -373,6 +373,11 @@ async def download_from_spotify(
     from app.utils.library import link_track_to_album_and_artists
     from app.models.playlist import Playlist, PlaylistSong, LikedSong, UserLibraryItem
     from app.models.music import Album
+    import logging
+    
+    # Set up logger
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
     
     # Check storage quota
     if current_user.storage_used_mb >= current_user.storage_quota_mb:
@@ -386,18 +391,29 @@ async def download_from_spotify(
     is_album = '/album/' in spotify_url
     is_track = '/track/' in spotify_url
     
+    logger.info(f"Starting Spotify download - Type: {'playlist' if is_playlist else 'album' if is_album else 'track'}")
+    logger.info(f"URL: {spotify_url}")
+    
     # Create temp directory
     temp_dir = Path("uploads/temp_downloads")
     temp_dir.mkdir(parents=True, exist_ok=True)
     
     try:
-        # Get metadata using spotdl
+        # Get metadata using spotdl with verbose output
+        logger.info("Running spotdl command...")
         result = subprocess.run(
             ['spotdl', spotify_url, '--output', str(temp_dir)],
             capture_output=True,
             text=True,
             timeout=300
         )
+        
+        # Log spotdl output
+        logger.info(f"spotdl return code: {result.returncode}")
+        if result.stdout:
+            logger.info(f"spotdl stdout:\n{result.stdout}")
+        if result.stderr:
+            logger.warning(f"spotdl stderr:\n{result.stderr}")
         
         if result.returncode != 0:
             raise HTTPException(
@@ -431,6 +447,8 @@ async def download_from_spotify(
             except:
                 playlist_name = "Imported Spotify Playlist"
             
+            logger.info(f"Creating playlist: {playlist_name}")
+            
             # Create playlist in database
             created_playlist = Playlist(
                 name=playlist_name,
@@ -441,11 +459,16 @@ async def download_from_spotify(
             db.add(created_playlist)
             db.commit()
             db.refresh(created_playlist)
+            
+            logger.info(f"Playlist created with ID: {created_playlist.id}")
         
         # Process downloaded files
         downloaded_files = sorted(list(temp_dir.glob("*.mp3")), key=lambda x: x.name)
         
+        logger.info(f"Found {len(downloaded_files)} downloaded files")
+        
         if not downloaded_files:
+            logger.error("No files were downloaded by spotdl")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="No files downloaded"
@@ -455,7 +478,9 @@ async def download_from_spotify(
         skipped_tracks = []
         position = 1.0
         
-        for audio_file in downloaded_files:
+        for idx, audio_file in enumerate(downloaded_files, 1):
+            logger.info(f"Processing file {idx}/{len(downloaded_files)}: {audio_file.name}")
+            
             try:
                 # Extract metadata
                 audio = MutagenFile(audio_file, easy=True)
@@ -472,6 +497,8 @@ async def download_from_spotify(
                     'bitrate_kbps': int(audio.info.bitrate / 1000) if audio and hasattr(audio, 'info') and hasattr(audio.info, 'bitrate') else None
                 }
                 
+                logger.info(f"  Title: {title}, Artist: {metadata['artist']}, Album: {metadata['album']}")
+                
                 # Calculate hash
                 hasher = hashlib.sha256()
                 with open(audio_file, 'rb') as f:
@@ -481,18 +508,23 @@ async def download_from_spotify(
                 # Check for duplicates
                 existing = db.query(Track).filter(Track.song_hash == file_hash).first()
                 if existing:
+                    logger.info(f"  -> Duplicate found (track_id: {existing.id})")
+                    
                     skipped_tracks.append({
                         'title': title,
-                        'reason': 'Already in library'
+                        'reason': 'Already in library',
+                        'id': existing.id
                     })
                     audio_file.unlink()
                     
                     # Apply tag to duplicate if provided
                     if tag_id:
                         apply_tag_to_track(db, existing.id, tag_id, current_user.id)
+                        logger.info(f"  -> Applied personal tag {tag_id}")
 
                     if global_tag_id:
                         apply_global_tag_to_track(db, existing.id, global_tag_id, current_user.id)
+                        logger.info(f"  -> Applied global tag {global_tag_id}")
                     
                     # Try to fetch lyrics for duplicate if not already present
                     try:
@@ -502,11 +534,9 @@ async def download_from_spotify(
                         _ = existing.album
                         save_lyrics_for_track(db, existing)
                     except Exception as e:
-                        import logging
-                        logger = logging.getLogger(__name__)
-                        logger.warning(f"Failed to auto-fetch lyrics for duplicate track {existing.id}: {e}")
+                        logger.warning(f"  -> Failed to fetch lyrics: {e}")
                     
-                    # Still add to playlist if this was a playlist download
+                    # ALWAYS add to playlist if this was a playlist download (NEW or DUPLICATE)
                     if created_playlist:
                         # Check if already in this playlist
                         already_in_playlist = db.query(PlaylistSong).filter(
@@ -522,10 +552,16 @@ async def download_from_spotify(
                                 added_by_id=current_user.id
                             )
                             db.add(playlist_song)
-                            position += 1.0
                             db.commit()
+                            logger.info(f"  -> Added to playlist at position {position}")
+                        else:
+                            logger.info(f"  -> Already in playlist, skipping")
+                        
+                        position += 1.0
                     
                     continue
+                
+                logger.info(f"  -> New track, saving...")
                 
                 # Move to permanent storage
                 music_dir = Path("uploads/music")
@@ -561,6 +597,8 @@ async def download_from_spotify(
                 # Commit to get track ID, then extract cover
                 db.flush()
                 
+                logger.info(f"  -> Track created with ID: {new_track.id}")
+                
                 # Link to album and artists
                 link_track_to_album_and_artists(db, new_track, metadata)
                 
@@ -573,6 +611,7 @@ async def download_from_spotify(
                 extracted_cover = extract_cover_art(str(final_path), str(cover_path))
                 if extracted_cover:
                     new_track.cover_path = str(cover_path)
+                    logger.info(f"  -> Cover art extracted")
                 
                 db.commit()
                 db.refresh(new_track)
@@ -580,18 +619,19 @@ async def download_from_spotify(
                 # Apply tag to new track if provided
                 if tag_id:
                     apply_tag_to_track(db, new_track.id, tag_id, current_user.id)
+                    logger.info(f"  -> Applied personal tag {tag_id}")
 
                 if global_tag_id:
                     apply_global_tag_to_track(db, new_track.id, global_tag_id, current_user.id)
+                    logger.info(f"  -> Applied global tag {global_tag_id}")
                 
                 # Auto-fetch lyrics for new track (silent fail - doesn't block download)
                 try:
                     from app.utils.lyrics_fetcher import save_lyrics_for_track
                     save_lyrics_for_track(db, new_track)
+                    logger.info(f"  -> Lyrics fetched")
                 except Exception as e:
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.warning(f"Failed to auto-fetch lyrics for track {new_track.id}: {e}")
+                    logger.warning(f"  -> Failed to fetch lyrics: {e}")
                 
                 # Add to playlist if this was a playlist download
                 if created_playlist:
@@ -602,6 +642,7 @@ async def download_from_spotify(
                         added_by_id=current_user.id
                     )
                     db.add(playlist_song)
+                    logger.info(f"  -> Added to playlist at position {position}")
                     position += 1.0
                 
                 # Auto-like if single track download
@@ -611,6 +652,7 @@ async def download_from_spotify(
                         track_id=new_track.id
                     )
                     db.add(liked_song)
+                    logger.info(f"  -> Auto-liked track")
                 
                 db.commit()
                 
@@ -621,7 +663,7 @@ async def download_from_spotify(
                 })
                 
             except Exception as e:
-                print(f"Error processing {audio_file}: {e}")
+                logger.error(f"Error processing {audio_file}: {e}", exc_info=True)
                 if audio_file.exists():
                     audio_file.unlink()
                 continue
@@ -646,11 +688,14 @@ async def download_from_spotify(
                     )
                     db.add(library_item)
                     db.commit()
+                    logger.info(f"Album saved to library")
         
         # Clean up temp directory
         for file in temp_dir.iterdir():
             if file.is_file():
                 file.unlink()
+        
+        logger.info(f"Download complete: {len(processed_tracks)} new, {len(skipped_tracks)} duplicates")
         
         # Build response
         response = {
@@ -668,7 +713,7 @@ async def download_from_spotify(
             response['playlist'] = {
                 'id': created_playlist.id,
                 'name': created_playlist.name,
-                'track_count': len(processed_tracks)
+                'track_count': len(processed_tracks) + len(skipped_tracks)
             }
         
         # Add album info if applicable
@@ -697,11 +742,13 @@ async def download_from_spotify(
         return response
         
     except subprocess.TimeoutExpired:
+        logger.error("Download timed out after 300 seconds")
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail="Download timed out"
         )
     except Exception as e:
+        logger.error(f"Download failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
@@ -891,12 +938,13 @@ async def download_from_youtube(
                     hasher.update(f.read())
                 file_hash = hasher.hexdigest()
                 
-                # Check for duplicates
+# Check for duplicates
                 existing = db.query(Track).filter(Track.song_hash == file_hash).first()
                 if existing:
                     skipped_tracks.append({
                         'title': title,
-                        'reason': 'Already in library'
+                        'reason': 'Already in library',
+                        'id': existing.id
                     })
                     audio_file.unlink()
                     
@@ -916,7 +964,7 @@ async def download_from_youtube(
                         logger = logging.getLogger(__name__)
                         logger.warning(f"Failed to auto-fetch lyrics for duplicate track {existing.id}: {e}")
                     
-                    # Still add to playlist if this was a playlist download
+                    # ALWAYS add to playlist if this was a playlist download
                     if created_playlist:
                         # Check if already in this playlist
                         already_in_playlist = db.query(PlaylistSong).filter(
@@ -932,8 +980,9 @@ async def download_from_youtube(
                                 added_by_id=current_user.id
                             )
                             db.add(playlist_song)
-                            position += 1.0
                             db.commit()
+                        
+                        position += 1.0  # ← MOVED OUTSIDE! Increment regardless
                     
                     continue
                 
@@ -1054,7 +1103,7 @@ async def download_from_youtube(
             response['playlist'] = {
                 'id': created_playlist.id,
                 'name': created_playlist.name,
-                'track_count': len(processed_tracks)
+                'track_count': len(processed_tracks) + len(skipped_tracks)  # ← Fixed!
             }
         
         if not is_playlist and processed_tracks:
