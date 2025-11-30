@@ -1,16 +1,12 @@
-// ============================================================================
-// USER & AUTH TYPES
-// ============================================================================
-
+// User types
 export interface User {
   id: number;
   username: string;
   email: string;
   role: string;
-  storage_quota_mb: number;
   storage_used_mb: number;
+  storage_quota_mb: number;
   created_at: string;
-  avatar_path: string | null;
 }
 
 export interface LoginRequest {
@@ -29,100 +25,85 @@ export interface RegisterRequest {
   password: string;
 }
 
-export interface PasswordChangeRequest {
-  current_password: string;
-  new_password: string;
-}
-
-// ============================================================================
-// MUSIC TYPES - Match backend exactly
-// ============================================================================
-
-export interface Track {
-  id: number;
-  title: string;
-  duration: number;                    // seconds
-  file_size_mb: number;
-  song_hash: string;
-  audio_path: string;
-  cover_path: string | null;
-  bitrate: number | null;
-  uploaded_by_id: number;
-  created_at: string;
-  play_count: number;
-}
-
+// Artist type
 export interface Artist {
-  id: number;
+  id?: number;
   name: string;
-  bio: string | null;
-  created_at: string;
 }
 
+// Album type
 export interface Album {
   id: number;
   name: string;
-  cover_path: string | null;
-  release_year: number | null;
-  genre: string | null;
-  total_tracks: number | null;
-  album_type: string;
+  release_year?: number;
+  cover_path?: string;
+  tracks?: Track[];  // Add this
+  artist_name?: string;
+}
+
+// Track type
+export interface Track {
+  id: number;
+  title: string;
+  duration: number;
+  file_size_mb?: number;
+  song_hash?: string;
+  audio_path?: string;
+  cover_path?: string;
+  bitrate?: number;
+  format?: string;
+  uploaded_by_id?: number;
+  created_at?: string;
+  play_count?: number;
+  year?: number;
+  genre?: string;
+  album_id?: number;
+  artists?: Artist[];  // Add this
+  album?: Album;  // Add this
+}
+
+// Playlist types
+export interface PlaylistListItem {
+  id: number;
+  name: string;
+  description?: string;
+  cover_path?: string;
+  is_collaborative: boolean;
+  owner_id: number;
   created_at: string;
 }
 
-// ============================================================================
-// PLAYLIST TYPES
-// ============================================================================
+export interface PlaylistTrack {
+  id: number;
+  track_id: number;
+  title: string;
+  duration: number;
+  artists: string[];  // Array of artist names
+  cover_path?: string;
+  position: number;
+  added_by_id: number;
+  added_at: string;
+}
 
 export interface Playlist {
   id: number;
   name: string;
-  description: string | null;
-  cover_path: string | null;
-  owner_id: number;
+  description?: string;
+  cover_path?: string;
   is_collaborative: boolean;
+  owner_id: number;
   created_at: string;
-  updated_at: string;
+  tracks?: PlaylistTrack[];  // Add this
 }
 
-export interface PlaylistCreate {
-  name: string;
-  description?: string;
-  is_collaborative?: boolean;
-}
-
-export interface PlaylistUpdate {
-  name?: string;
-  description?: string;
-  is_collaborative?: boolean;
-}
-
-// ============================================================================
-// LIKED SONGS
-// ============================================================================
-
+// Liked song type
 export interface LikedSong {
-  user_id: number;
   track_id: number;
+  track: Track;
   liked_at: string;
 }
 
-// ============================================================================
-// LIBRARY ITEMS
-// ============================================================================
-
-export interface UserLibraryItem {
-  id: number;
-  user_id: number;
-  item_type: 'album' | 'playlist';
-  item_id: number;
-  added_at: string;
-}
-
-// ============================================================================
-// LIBRARY TYPES - Based on actual API responses
-// ============================================================================
-
+// Library types
 export interface LibraryStats {
   liked_songs: number;
   saved_albums: number;
@@ -131,14 +112,14 @@ export interface LibraryStats {
 }
 
 export interface LibraryItem {
-  type: 'album' | 'song';
+  type: 'album' | 'playlist';
   id: number;
   title: string;
   artists: string[];
-  release_year: number | null;
-  cover_path: string | null;
+  release_year?: number;
+  cover_path?: string;
   added_at: string;
-  total_tracks: number | null;
+  total_tracks?: number;
 }
 
 export interface LibraryItemsResponse {
@@ -146,13 +127,27 @@ export interface LibraryItemsResponse {
   items: LibraryItem[];
 }
 
-// Update Playlist to match response (doesn't include updated_at in list)
-export interface PlaylistListItem {
+export interface UserLibraryItem {
   id: number;
-  name: string;
-  description: string | null;
-  cover_path: string | null;
-  is_collaborative: boolean;
-  owner_id: number;
-  created_at: string;
+  user_id: number;
+  item_type: string;
+  item_id: number;
+  added_at: string;
+}
+
+// Track upload response
+export interface TrackUploadResponse {
+  id: number;
+  title: string;
+  duration: number;
+  file_size_mb: number;
+  song_hash: string;
+  audio_path: string;
+  message: string;
+}
+
+export interface TrackResponse extends Track {}
+
+export interface TrackUpdate {
+  title?: string;
 }

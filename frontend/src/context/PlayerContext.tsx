@@ -1,17 +1,18 @@
-import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
+import { createContext, useContext, useState, useRef, useEffect, type ReactNode } from 'react';
 import type { Track } from '../types';
+
+type RepeatMode = 'off' | 'all' | 'one';
 
 interface PlayerContextType {
   currentTrack: Track | null;
-  isPlaying: boolean;
   queue: Track[];
+  isPlaying: boolean;
   currentTime: number;
   duration: number;
   volume: number;
   isShuffle: boolean;
-  repeatMode: 'off' | 'all' | 'one';
-  
-  playTrack: (track: Track, queueTracks?: Track[]) => void;
+  repeatMode: RepeatMode;
+  playTrack: (track: Track, queue?: Track[]) => void;
   togglePlay: () => void;
   playNext: () => void;
   playPrevious: () => void;
@@ -19,87 +20,102 @@ interface PlayerContextType {
   setVolume: (volume: number) => void;
   toggleShuffle: () => void;
   toggleRepeat: () => void;
-  addToQueue: (track: Track) => void;
-  clearQueue: () => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
-export const usePlayer = () => {
-  const context = useContext(PlayerContext);
-  if (!context) {
-    throw new Error('usePlayer must be used within PlayerProvider');
-  }
-  return context;
-};
-
-export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export function PlayerProvider({ children }: { children: ReactNode }) {
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [queue, setQueue] = useState<Track[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolumeState] = useState(0.7); // 70% default
+  const [volume, setVolume] = useState(0.5);
   const [isShuffle, setIsShuffle] = useState(false);
-  const [repeatMode, setRepeatMode] = useState<'off' | 'all' | 'one'>('off');
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Initialize audio element ONCE
   useEffect(() => {
     const audio = new Audio();
     audio.volume = volume;
-    
-    audio.addEventListener('timeupdate', () => {
-      setCurrentTime(audio.currentTime);
-    });
-    
-    audio.addEventListener('loadedmetadata', () => {
-      setDuration(audio.duration);
-    });
-    
-    audio.addEventListener('ended', () => {
-      handleTrackEnd();
-    });
-    
     audioRef.current = audio;
-    
-    return () => {
-      audio.pause();
-      audio.src = '';
+
+    // Time update listener
+    const handleTimeUpdate = () => {
+      setCurrentTime(audio.currentTime);
     };
-  }, []);
 
-  const handleTrackEnd = () => {
-    if (repeatMode === 'one') {
-      audioRef.current?.play();
-    } else if (currentIndex < queue.length - 1) {
-      playNext();
-    } else if (repeatMode === 'all' && queue.length > 0) {
-      setCurrentIndex(0);
-      setCurrentTrack(queue[0]);
-    } else {
-      setIsPlaying(false);
+    // Duration change listener
+    const handleLoadedMetadata = () => {
+      setDuration(audio.duration);
+    };
+
+    // Track ended listener
+    const handleEnded = () => {
+      if (repeatMode === 'one') {
+        // Repeat current track
+        audio.currentTime = 0;
+        audio.play();
+      } else {
+        // Play next track - handled by calling playNext
+        playNextRef.current();
+      }
+    };
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('ended', handleEnded);
+      audio.pause();
+    };
+  }, []); // Only run once!
+
+  // Ref to access latest playNext function
+  const playNextRef = useRef<() => void>(() => {});
+
+  // Update volume when it changes
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
     }
-  };
+  }, [volume]);
 
-  const playTrack = (track: Track, queueTracks?: Track[]) => {
-    const token = localStorage.getItem('token');
-    if (!token || !audioRef.current) return;
+const playTrack = (track: Track, newQueue?: Track[]) => {
+  if (!audioRef.current) return;
 
-    const streamUrl = `http://localhost:8000/music/stream/${track.id}?token=${token}`;
-    
-    setCurrentTrack(track);
-    audioRef.current.src = streamUrl;
-    audioRef.current.play();
-    setIsPlaying(true);
+  // If new queue provided, update queue
+  if (newQueue) {
+    setQueue(newQueue);
+  }
 
-    if (queueTracks) {
-      setQueue(queueTracks);
-      const index = queueTracks.findIndex(t => t.id === track.id);
-      setCurrentIndex(index >= 0 ? index : 0);
-    }
-  };
+  // Set current track
+  setCurrentTrack(track);
+
+  // Get token from localStorage
+  const token = localStorage.getItem('token');
+  
+  if (!token) {
+    console.error('No authentication token found');
+    setIsPlaying(false);
+    return;
+  }
+
+  // Load and play the track with token in URL
+  const audioUrl = `http://localhost:8000/music/stream/${track.id}?token=${token}`;
+  audioRef.current.src = audioUrl;
+  audioRef.current.load();
+  audioRef.current.play().catch(err => {
+    console.error('Error playing track:', err);
+    setIsPlaying(false);
+  });
+  setIsPlaying(true);
+};
 
   const togglePlay = () => {
     if (!audioRef.current || !currentTrack) return;
@@ -108,49 +124,72 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
-      audioRef.current.play();
+      audioRef.current.play().catch(err => {
+        console.error('Error playing:', err);
+        setIsPlaying(false);
+      });
       setIsPlaying(true);
     }
   };
 
   const playNext = () => {
-    if (queue.length === 0) return;
+    if (!currentTrack || queue.length === 0) return;
 
-    let nextIndex: number;
+    const currentIndex = queue.findIndex(t => t.id === currentTrack.id);
     
     if (isShuffle) {
+      // Shuffle mode: play random track (not the current one)
+      let randomIndex;
       do {
-        nextIndex = Math.floor(Math.random() * queue.length);
-      } while (nextIndex === currentIndex && queue.length > 1);
+        randomIndex = Math.floor(Math.random() * queue.length);
+      } while (randomIndex === currentIndex && queue.length > 1);
+      playTrack(queue[randomIndex]);
+    } else if (currentIndex < queue.length - 1) {
+      // Normal mode: play next track
+      playTrack(queue[currentIndex + 1]);
+    } else if (repeatMode === 'all') {
+      // Repeat all: go back to first track
+      playTrack(queue[0]);
     } else {
-      nextIndex = currentIndex + 1;
-      if (nextIndex >= queue.length) {
-        nextIndex = repeatMode === 'all' ? 0 : currentIndex;
+      // End of queue - stop playing
+      setIsPlaying(false);
+      if (audioRef.current) {
+        audioRef.current.pause();
       }
-    }
-
-    if (nextIndex !== currentIndex || repeatMode === 'all') {
-      setCurrentIndex(nextIndex);
-      playTrack(queue[nextIndex], queue);
     }
   };
 
-  const playPrevious = () => {
-    if (queue.length === 0) return;
+  // Update the ref whenever playNext changes
+  useEffect(() => {
+    playNextRef.current = playNext;
+  }, [currentTrack, queue, isShuffle, repeatMode]);
 
-    if (currentTime > 3) {
-      seek(0);
+  const playPrevious = () => {
+    if (!currentTrack || queue.length === 0) return;
+
+    const currentIndex = queue.findIndex(t => t.id === currentTrack.id);
+    
+    // If more than 3 seconds into the song, restart it
+    if (audioRef.current && audioRef.current.currentTime > 3) {
+      audioRef.current.currentTime = 0;
       return;
     }
 
-    const prevIndex = currentIndex - 1;
-    if (prevIndex >= 0) {
-      setCurrentIndex(prevIndex);
-      playTrack(queue[prevIndex], queue);
+    // Otherwise, go to previous track
+    if (currentIndex > 0) {
+      playTrack(queue[currentIndex - 1]);
     } else if (repeatMode === 'all') {
-      const lastIndex = queue.length - 1;
-      setCurrentIndex(lastIndex);
-      playTrack(queue[lastIndex], queue);
+      // If at first track and repeat all is on, go to last track
+      playTrack(queue[queue.length - 1]);
+    } else {
+      // Already at first track - restart current track
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(err => {
+          console.error('Error playing:', err);
+        });
+        setIsPlaying(true);
+      }
     }
   };
 
@@ -160,11 +199,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setCurrentTime(time);
   };
 
-  const setVolume = (vol: number) => {
-    if (!audioRef.current) return;
-    const clampedVol = Math.max(0, Math.min(1, vol));
-    audioRef.current.volume = clampedVol;
-    setVolumeState(clampedVol);
+  const handleSetVolume = (newVolume: number) => {
+    const clampedVolume = Math.max(0, Math.min(1, newVolume));
+    setVolume(clampedVolume);
   };
 
   const toggleShuffle = () => {
@@ -172,41 +209,43 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const toggleRepeat = () => {
-    const modes: ('off' | 'all' | 'one')[] = ['off', 'all', 'one'];
-    const currentModeIndex = modes.indexOf(repeatMode);
-    const nextMode = modes[(currentModeIndex + 1) % modes.length];
-    setRepeatMode(nextMode);
+    setRepeatMode(current => {
+      if (current === 'off') return 'all';
+      if (current === 'all') return 'one';
+      return 'off';
+    });
   };
 
-  const addToQueue = (track: Track) => {
-    setQueue([...queue, track]);
-  };
+  return (
+    <PlayerContext.Provider
+      value={{
+        currentTrack,
+        queue,
+        isPlaying,
+        currentTime,
+        duration,
+        volume,
+        isShuffle,
+        repeatMode,
+        playTrack,
+        togglePlay,
+        playNext,
+        playPrevious,
+        seek,
+        setVolume: handleSetVolume,
+        toggleShuffle,
+        toggleRepeat,
+      }}
+    >
+      {children}
+    </PlayerContext.Provider>
+  );
+}
 
-  const clearQueue = () => {
-    setQueue([]);
-    setCurrentIndex(0);
-  };
-
-  const value: PlayerContextType = {
-    currentTrack,
-    isPlaying,
-    queue,
-    currentTime,
-    duration,
-    volume,
-    isShuffle,
-    repeatMode,
-    playTrack,
-    togglePlay,
-    playNext,
-    playPrevious,
-    seek,
-    setVolume,
-    toggleShuffle,
-    toggleRepeat,
-    addToQueue,
-    clearQueue,
-  };
-
-  return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;
-};
+export function usePlayer() {
+  const context = useContext(PlayerContext);
+  if (context === undefined) {
+    throw new Error('usePlayer must be used within a PlayerProvider');
+  }
+  return context;
+}
