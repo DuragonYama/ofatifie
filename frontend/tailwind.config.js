@@ -8,36 +8,38 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
+        background: "0 0% 7%",           // Dark background like Spotify
+        foreground: "0 0% 95%",          // Light text
+        card: "0 0% 10%",                // Card background
+        "card-foreground": "0 0% 95%",
         primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
+          DEFAULT: "0 65% 45%",          // Dark red (like #B93939)
+          foreground: "0 0% 100%",
         },
         secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
+          DEFAULT: "0 0% 15%",
+          foreground: "0 0% 95%",
         },
         muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
+          DEFAULT: "0 0% 15%",
+          foreground: "0 0% 60%",
         },
         accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
+          DEFAULT: "0 65% 45%",          // Same dark red
+          foreground: "0 0% 100%",
         },
         destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
+          DEFAULT: "0 84% 60%",
+          foreground: "0 0% 98%",
         },
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
+        border: "0 0% 20%",
+        input: "0 0% 18%",
+        ring: "0 65% 45%",
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        lg: "0.5rem",
+        md: "0.375rem",
+        sm: "0.25rem",
       },
     },
   },
