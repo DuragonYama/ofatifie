@@ -1,88 +1,149 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getLibraryStats, getLibraryItems, getPlaylists } from '../lib/music-api';
-import type { LibraryStats, LibraryItem, PlaylistListItem } from '../types';
-import { Music, Heart, LogOut, Album as AlbumIcon, Plus } from 'lucide-react';
-import Card from '../components/Card';
+import { usePlayer } from '../context/PlayerContext';
+import {
+  getLibraryStats,
+  getLibraryItems,
+  getPlaylists,
+  getLikedSongs,
+  getPlaylist,
+  getAlbum
+} from '../lib/music-api';
+import type { LibraryStats, LibraryItem, PlaylistListItem, Track } from '../types';
+import { LogOut, Heart, Music, Album as AlbumIcon, Plus } from 'lucide-react';
 
 export default function Home() {
   const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const { playTrack } = usePlayer();
 
   const [stats, setStats] = useState<LibraryStats | null>(null);
   const [albums, setAlbums] = useState<LibraryItem[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistListItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch all data in parallel
-        const [statsData, libraryData, playlistsData] = await Promise.all([
+        const [statsData, itemsData, playlistsData] = await Promise.all([
           getLibraryStats(),
-          getLibraryItems(0, 50, 'albums'), // Only get albums
-          getPlaylists()
+          getLibraryItems(0, 50, 'albums'),
+          getPlaylists(),
         ]);
 
+                console.log('Albums data:', itemsData);  // ← ADD THIS
+        console.log('Albums items:', itemsData.items);  // ← ADD THIS
+
         setStats(statsData);
-        setAlbums(libraryData.items);
+        setAlbums(itemsData.items);
         setPlaylists(playlistsData);
       } catch (error) {
-        console.error('Error fetching home data:', error);
+        console.error('Failed to fetch data:', error);
       } finally {
-        setIsLoading(false);
+        setLoading(false);
       }
     };
 
     fetchData();
   }, []);
 
-  if (isLoading) {
+  // Play liked songs
+  const handlePlayLikedSongs = async () => {
+    try {
+      const tracks = await getLikedSongs();
+      if (tracks.length > 0) {
+        playTrack(tracks[0], tracks);
+      }
+    } catch (error) {
+      console.error('Failed to play liked songs:', error);
+    }
+  };
+
+  // Play playlist
+  const handlePlayPlaylist = async (playlistId: number) => {
+    try {
+      const playlist = await getPlaylist(playlistId);
+      if (playlist.tracks && playlist.tracks.length > 0) {
+        const tracks: Track[] = playlist.tracks.map(pt => ({
+          id: pt.track_id,
+          title: pt.title,
+          duration: pt.duration,
+          artists: pt.artists.map((name: string) => ({ name })),
+          cover_path: pt.cover_path,
+        }));
+
+        playTrack(tracks[0], tracks);
+      }
+    } catch (error) {
+      console.error('Failed to play playlist:', error);
+    }
+  };
+
+  // Play album
+  const handlePlayAlbum = async (albumId: number) => {
+    try {
+      const album = await getAlbum(albumId);
+      if (album.tracks && album.tracks.length > 0) {
+        playTrack(album.tracks[0], album.tracks);
+      }
+    } catch (error) {
+      console.error('Failed to play album:', error);
+    }
+  };
+
+  // Get time-based greeting
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 18) return 'Good afternoon';
+    return 'Good evening';
+  };
+
+  if (loading) {
     return (
       <div className="min-h-screen bg-[#121212] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-[#B93939] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-400">Loading your library...</p>
-        </div>
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#B93939]"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#121212]">
-      {/* Top Navigation Bar */}
-      <header className="bg-black border-b border-neutral-800 sticky top-0 z-10">
-        <div className="max-w-[1800px] mx-auto px-6 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <Music className="w-8 h-8 text-[#B93939]" />
-            <h1 className="text-2xl font-bold text-white">ofatifie</h1>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-sm text-white font-medium">{user?.username}</p>
-              <p className="text-xs text-gray-400">
-                {stats?.storage_used_mb.toFixed(1)} MB / {stats?.storage_quota_mb} MB
-              </p>
+    <div className="min-h-screen bg-[#121212] text-white flex flex-col">
+      {/* Header */}
+      <header className="bg-[#000000] border-b border-neutral-800 sticky top-0 z-10">
+        <div className="max-w-[1800px] mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            {/* Logo */}
+            <div className="flex items-center gap-2">
+              <Music className="w-6 h-6 text-[#B93939]" />
+              <span className="text-xl font-bold">ofatifie</span>
             </div>
-            <button
-              onClick={logout}
-              className="flex items-center gap-2 px-4 py-2 bg-neutral-900 hover:bg-[#B93939] text-white rounded-full transition"
-            >
-              <LogOut className="w-4 h-4" />
-              Logout
-            </button>
+
+            {/* User Info */}
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-sm font-medium">{user?.username}</p>
+                <p className="text-xs text-gray-400">
+                  {stats?.storage_used_mb.toFixed(0)} MB / {stats?.storage_quota_mb.toFixed(0)} MB
+                </p>
+              </div>
+              <button
+                onClick={logout}
+                className="flex items-center gap-2 px-4 py-2 bg-neutral-900 hover:bg-[#B93939] text-white rounded-full transition"
+              >
+                <LogOut className="w-4 h-4" />
+                Logout
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="max-w-[1800px] mx-auto px-6 py-8">
-{/* Welcome Section */}
+      <main className="max-w-[1800px] mx-auto px-6 pt-8 pb-32 flex-1 overflow-y-auto">
+        {/* Welcome Section */}
         <div className="mb-8">
           <h2 className="text-4xl font-bold text-white mb-2">
-            Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}
+            {getGreeting()}
           </h2>
           <p className="text-gray-400">Welcome back to your music</p>
         </div>
@@ -97,7 +158,7 @@ export default function Home() {
                 {albums.map((album) => (
                   <div
                     key={album.id}
-                    onClick={() => navigate(`/album/${album.id}`)}
+                    onClick={() => handlePlayAlbum(album.id)}
                     className="flex items-center gap-3 p-3 bg-neutral-900 rounded-lg hover:bg-neutral-800 cursor-pointer transition group"
                   >
                     {/* Album Cover */}
@@ -133,13 +194,21 @@ export default function Home() {
           {/* CENTER: Liked Songs */}
           <div className="order-1 lg:order-2">
             <div className="sticky top-24">
-              <Card
-                title="Liked Songs"
-                subtitle={`${stats?.liked_songs || 0} songs`}
-                icon={<Heart className="w-20 h-20 text-[#B93939]" fill="currentColor" />}
-                onClick={() => navigate('/liked')}
-              />
-              
+              <div
+                className="bg-neutral-900 rounded-lg p-6 cursor-pointer hover:bg-neutral-800 transition group"
+                onClick={handlePlayLikedSongs}
+              >
+                <div className="aspect-square bg-neutral-800 rounded-md mb-4 flex items-center justify-center group-hover:bg-[#B93939]/20 transition">
+                  <Heart className="w-16 h-16 text-[#B93939] group-hover:text-[#a33232] transition" fill="currentColor" />
+                </div>
+                <h3 className="font-semibold text-white truncate mb-1 group-hover:text-[#B93939] transition">
+                  Liked Songs
+                </h3>
+                <p className="text-sm text-gray-400 truncate">
+                  {stats?.liked_songs || 0} songs
+                </p>
+              </div>
+
               {/* Stats Card */}
               <div className="mt-6 bg-neutral-900 rounded-lg p-4 border border-neutral-800">
                 <h4 className="text-sm font-semibold text-white mb-3">Your Library</h4>
@@ -166,19 +235,19 @@ export default function Home() {
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-2xl font-bold text-white">Playlists</h3>
               <button
-                onClick={() => {/* TODO: Open create playlist modal */}}
+                onClick={() => {/* TODO: Open create playlist modal */ }}
                 className="flex items-center gap-2 px-3 py-1.5 bg-neutral-900 hover:bg-[#B93939] text-white rounded-full transition text-sm"
               >
                 <Plus className="w-4 h-4" />
               </button>
             </div>
-            
+
             {playlists.length > 0 ? (
               <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 scrollbar-thin">
                 {playlists.map((playlist) => (
                   <div
                     key={playlist.id}
-                    onClick={() => navigate(`/playlist/${playlist.id}`)}
+                    onClick={() => handlePlayPlaylist(playlist.id)}
                     className="flex items-center gap-3 p-3 bg-neutral-900 rounded-lg hover:bg-neutral-800 cursor-pointer transition group"
                   >
                     {/* Playlist Cover */}
@@ -223,7 +292,7 @@ export default function Home() {
               Get started by downloading music from Spotify or YouTube, or upload your own files.
             </p>
             <button
-              onClick={() => {/* TODO: Navigate to upload/download page */}}
+              onClick={() => {/* TODO: Navigate to upload/download page */ }}
               className="px-6 py-3 bg-[#B93939] text-white rounded-full font-semibold hover:bg-[#a33232] transition"
             >
               Add Music

@@ -3,113 +3,105 @@ import type {
   Track, 
   Album, 
   Playlist, 
-  PlaylistListItem,
+  PlaylistListItem, 
   LikedSong, 
   LibraryItemsResponse, 
   LibraryStats 
 } from '../types';
 
-// ============================================================================
-// TRACKS
-// ============================================================================
-
-export const getTracks = async (skip = 0, limit = 50) => {
-  const response = await api.get<Track[]>('/music/tracks', {
-    params: { skip, limit }
-  });
+// Get all tracks
+export const getTracks = async (skip = 0, limit = 50): Promise<Track[]> => {
+  const response = await api.get('/music/tracks', { params: { skip, limit } });
   return response.data;
 };
 
-export const getTrack = async (id: number) => {
-  const response = await api.get<Track>(`/music/tracks/${id}`);
+// Get single track
+export const getTrack = async (id: number): Promise<Track> => {
+  const response = await api.get(`/music/tracks/${id}`);
   return response.data;
 };
 
-// Get track cover art URL
-export const getTrackCoverUrl = (trackId: number) => {
+// Get track cover URL
+export const getTrackCoverUrl = (trackId: number): string => {
   return `http://localhost:8000/music/cover/${trackId}`;
 };
 
-// Get track stream URL with token
-export const getTrackStreamUrl = (trackId: number, token: string) => {
+// Get track stream URL (with token)
+export const getTrackStreamUrl = (trackId: number, token: string): string => {
   return `http://localhost:8000/music/stream/${trackId}?token=${token}`;
 };
 
-// ============================================================================
-// ALBUMS
-// ============================================================================
-
-export const getAlbums = async () => {
-  const response = await api.get<Album[]>('/albums');
+// Get all albums
+export const getAlbums = async (): Promise<Album[]> => {
+  const response = await api.get('/albums');
   return response.data;
 };
 
-export const getAlbum = async (id: number) => {
-  const response = await api.get<Album>(`/albums/${id}`);
+// Get single album (with tracks)
+export const getAlbum = async (id: number): Promise<Album> => {
+  const response = await api.get(`/albums/${id}`);
   return response.data;
 };
 
-// Save/remove album from library
-export const saveAlbum = async (albumId: number) => {
-  const response = await api.post(`/library/albums/${albumId}`);
+// Save album to library
+export const saveAlbum = async (albumId: number): Promise<void> => {
+  await api.post(`/library/albums/${albumId}`);
+};
+
+// Remove album from library
+export const removeAlbum = async (albumId: number): Promise<void> => {
+  await api.delete(`/library/albums/${albumId}`);
+};
+
+// Get all playlists
+export const getPlaylists = async (): Promise<PlaylistListItem[]> => {
+  const response = await api.get('/playlists');
   return response.data;
 };
 
-export const removeAlbum = async (albumId: number) => {
-  const response = await api.delete(`/library/albums/${albumId}`);
+// Get single playlist (with tracks)
+export const getPlaylist = async (id: number): Promise<Playlist> => {
+  const response = await api.get(`/playlists/${id}`);
   return response.data;
 };
 
-// ============================================================================
-// PLAYLISTS
-// ============================================================================
-
-export const getPlaylists = async () => {
-  const response = await api.get<PlaylistListItem[]>('/playlists');
+// Create playlist
+export const createPlaylist = async (data: { name: string; description?: string }): Promise<Playlist> => {
+  const response = await api.post('/playlists', data);
   return response.data;
 };
 
-export const getPlaylist = async (id: number) => {
-  const response = await api.get<Playlist>(`/playlists/${id}`);
-  return response.data;
+// Get liked songs
+export const getLikedSongs = async (): Promise<Track[]> => {
+  const response = await api.get('/library/liked-songs');
+  // Backend returns LikedSong[], extract tracks
+  return response.data.map((item: LikedSong) => item.track);
 };
 
-export const createPlaylist = async (data: { name: string; description?: string; is_collaborative?: boolean }) => {
-  const response = await api.post<Playlist>('/playlists', data);
-  return response.data;
+// Like a track
+export const likeTrack = async (trackId: number): Promise<void> => {
+  await api.post(`/library/like/${trackId}`);
 };
 
-// ============================================================================
-// LIKED SONGS - CORRECTED ENDPOINTS
-// ============================================================================
-
-export const getLikedSongs = async () => {
-  const response = await api.get<LikedSong[]>('/library/liked-songs');
-  return response.data;
+// Unlike a track
+export const unlikeTrack = async (trackId: number): Promise<void> => {
+  await api.delete(`/library/like/${trackId}`);
 };
 
-export const likeTrack = async (trackId: number) => {
-  const response = await api.post(`/library/like/${trackId}`);
-  return response.data;
-};
-
-export const unlikeTrack = async (trackId: number) => {
-  const response = await api.delete(`/library/like/${trackId}`);
-  return response.data;
-};
-
-// ============================================================================
-// LIBRARY - UPDATED WITH CORRECT TYPES
-// ============================================================================
-
-export const getLibraryItems = async (skip = 0, limit = 50, itemType?: 'songs' | 'albums') => {
-  const response = await api.get<LibraryItemsResponse>('/library/items', {
+// Get library items (albums/playlists)
+export const getLibraryItems = async (
+  skip = 0,
+  limit = 50,
+  itemType?: 'album' | 'playlist'
+): Promise<LibraryItemsResponse> => {
+  const response = await api.get('/library/items', {
     params: { skip, limit, item_type: itemType }
   });
   return response.data;
 };
 
-export const getLibraryStats = async () => {
-  const response = await api.get<LibraryStats>('/library/stats');
+// Get library stats
+export const getLibraryStats = async (): Promise<LibraryStats> => {
+  const response = await api.get('/library/stats');
   return response.data;
 };
