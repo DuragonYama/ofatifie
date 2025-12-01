@@ -30,11 +30,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(0.5);
+  const [volume, setVolume] = useState(1);
   const [isShuffle, setIsShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playNextRef = useRef<() => void>(() => {});
+  const repeatModeRef = useRef<RepeatMode>('off');
+
+  // Keep repeatModeRef in sync with repeatMode state
+  useEffect(() => {
+    repeatModeRef.current = repeatMode;
+  }, [repeatMode]);
 
   // Initialize audio element ONCE
   useEffect(() => {
@@ -54,12 +61,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     // Track ended listener
     const handleEnded = () => {
-      if (repeatMode === 'one') {
+      if (repeatModeRef.current === 'one') {
         // Repeat current track
         audio.currentTime = 0;
         audio.play();
       } else {
-        // Play next track - handled by calling playNext
+        // Play next track
         playNextRef.current();
       }
     };
@@ -74,10 +81,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       audio.removeEventListener('ended', handleEnded);
       audio.pause();
     };
-  }, []); // Only run once!
-
-  // Ref to access latest playNext function
-  const playNextRef = useRef<() => void>(() => {});
+  }, []);
 
   // Update volume when it changes
   useEffect(() => {
@@ -86,36 +90,36 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [volume]);
 
-const playTrack = (track: Track, newQueue?: Track[]) => {
-  if (!audioRef.current) return;
+  const playTrack = (track: Track, newQueue?: Track[]) => {
+    if (!audioRef.current) return;
 
-  // If new queue provided, update queue
-  if (newQueue) {
-    setQueue(newQueue);
-  }
+    // If new queue provided, update queue
+    if (newQueue) {
+      setQueue(newQueue);
+    }
 
-  // Set current track
-  setCurrentTrack(track);
+    // Set current track
+    setCurrentTrack(track);
 
-  // Get token from localStorage
-  const token = localStorage.getItem('token');
-  
-  if (!token) {
-    console.error('No authentication token found');
-    setIsPlaying(false);
-    return;
-  }
+    // Get token from localStorage
+    const token = localStorage.getItem('token');
+    
+    if (!token) {
+      console.error('No authentication token found');
+      setIsPlaying(false);
+      return;
+    }
 
-  // Load and play the track with token in URL
-  const audioUrl = `http://localhost:8000/music/stream/${track.id}?token=${token}`;
-  audioRef.current.src = audioUrl;
-  audioRef.current.load();
-  audioRef.current.play().catch(err => {
-    console.error('Error playing track:', err);
-    setIsPlaying(false);
-  });
-  setIsPlaying(true);
-};
+    // Load and play the track with token in URL
+    const audioUrl = `http://localhost:8000/music/stream/${track.id}?token=${token}`;
+    audioRef.current.src = audioUrl;
+    audioRef.current.load();
+    audioRef.current.play().catch(err => {
+      console.error('Error playing track:', err);
+      setIsPlaying(false);
+    });
+    setIsPlaying(true);
+  };
 
   const togglePlay = () => {
     if (!audioRef.current || !currentTrack) return;
@@ -147,7 +151,7 @@ const playTrack = (track: Track, newQueue?: Track[]) => {
     } else if (currentIndex < queue.length - 1) {
       // Normal mode: play next track
       playTrack(queue[currentIndex + 1]);
-    } else if (repeatMode === 'all') {
+    } else if (repeatModeRef.current === 'all') {
       // Repeat all: go back to first track
       playTrack(queue[0]);
     } else {
@@ -162,7 +166,7 @@ const playTrack = (track: Track, newQueue?: Track[]) => {
   // Update the ref whenever playNext changes
   useEffect(() => {
     playNextRef.current = playNext;
-  }, [currentTrack, queue, isShuffle, repeatMode]);
+  });
 
   const playPrevious = () => {
     if (!currentTrack || queue.length === 0) return;
@@ -178,7 +182,7 @@ const playTrack = (track: Track, newQueue?: Track[]) => {
     // Otherwise, go to previous track
     if (currentIndex > 0) {
       playTrack(queue[currentIndex - 1]);
-    } else if (repeatMode === 'all') {
+    } else if (repeatModeRef.current === 'all') {
       // If at first track and repeat all is on, go to last track
       playTrack(queue[queue.length - 1]);
     } else {
@@ -242,10 +246,11 @@ const playTrack = (track: Track, newQueue?: Track[]) => {
   );
 }
 
-export function usePlayer() {
+// Export the hook
+export const usePlayer = () => {
   const context = useContext(PlayerContext);
   if (context === undefined) {
     throw new Error('usePlayer must be used within a PlayerProvider');
   }
   return context;
-}
+};

@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { Heart, ArrowLeft } from 'lucide-react';
-import { getLikedSongs } from '../../lib/music-api';
+import { useState, useEffect } from 'react';
+import { Heart, ArrowLeft, Play, Pause } from 'lucide-react';
+import { usePlayer } from '../../context/PlayerContext';
 import type { LibraryStats, Track } from '../../types';
 
 interface LikedSongsSectionProps {
@@ -11,15 +11,86 @@ interface LikedSongsSectionProps {
 
 export default function LikedSongsSection({ stats, albumCount, playlistCount }: LikedSongsSectionProps) {
   const [likedView, setLikedView] = useState<{ type: 'card' | 'detail'; tracks?: Track[] }>({ type: 'card' });
+  const [loading, setLoading] = useState(false);
+  const { currentTrack, isPlaying, playTrack, togglePlay } = usePlayer();
 
   const handleLikedClick = async () => {
+    setLoading(true);
     try {
-      const tracks = await getLikedSongs();
-      setLikedView({ type: 'detail', tracks });
+      const token = localStorage.getItem('token');
+      console.log('Fetching liked songs with token:', token ? 'present' : 'missing');
+      
+      // Fetch with pagination - load 500 songs at once
+      const response = await fetch('http://localhost:8000/library/liked-songs?skip=0&limit=500', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      console.log('Response status:', response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Liked songs data:', data);
+        console.log('Number of tracks:', data.length || 0);
+        
+        setLikedView({ type: 'detail', tracks: data || [] });
+      } else {
+        console.error('Failed to fetch liked songs:', response.status);
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
+        setLikedView({ type: 'detail', tracks: [] });
+      }
     } catch (error) {
       console.error('Failed to load liked songs:', error);
+      setLikedView({ type: 'detail', tracks: [] });
+    } finally {
+      setLoading(false);
     }
   };
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handlePlayAll = () => {
+    if (!likedView.tracks || likedView.tracks.length === 0) return;
+
+    const trackIds = likedView.tracks.map(t => t.id);
+    const isLikedPlaying = currentTrack && trackIds.includes(currentTrack.id);
+
+    if (isLikedPlaying && isPlaying) {
+      togglePlay();
+    } else if (isLikedPlaying && !isPlaying) {
+      togglePlay();
+    } else {
+      playTrack(likedView.tracks[0], likedView.tracks);
+    }
+  };
+
+  const handleTrackClick = (track: Track) => {
+    if (!likedView.tracks) return;
+    playTrack(track, likedView.tracks);
+  };
+
+  // Check if any liked song is playing
+  const likedTrackIds = likedView.tracks?.map(t => t.id) || [];
+  const isLikedPlaying = currentTrack && likedTrackIds.includes(currentTrack.id);
+
+  // Refresh liked songs when returning to detail view after a like update
+  useEffect(() => {
+    if (likedView.type === 'detail') {
+      const handleLikedUpdate = () => {
+        console.log('Liked songs updated, refreshing list...');
+        handleLikedClick();
+      };
+      
+      window.addEventListener('liked-songs-updated', handleLikedUpdate);
+      return () => window.removeEventListener('liked-songs-updated', handleLikedUpdate);
+    }
+  }, [likedView.type]);
 
   return (
     <div className="sticky top-24">
@@ -69,17 +140,77 @@ export default function LikedSongsSection({ stats, albumCount, playlistCount }: 
             <ArrowLeft className="w-4 h-4" />
             Back
           </button>
-          <h3 className="text-xl font-bold mb-4">Liked Songs</h3>
-          {likedView.tracks && likedView.tracks.length > 0 ? (
-            <div className="space-y-2">
-              {likedView.tracks.map((track) => (
-                <div key={track.id} className="text-sm text-gray-300 p-2 hover:bg-neutral-800 rounded cursor-pointer">
-                  {track.title}
-                </div>
-              ))}
+          
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-white">Liked Songs</h3>
+            {likedView.tracks && likedView.tracks.length > 0 && (
+              <button
+                onClick={handlePlayAll}
+                className="w-10 h-10 bg-[#B93939] rounded-full flex items-center justify-center hover:scale-105 transition"
+              >
+                {isLikedPlaying && isPlaying ? (
+                  <Pause className="w-5 h-5 text-white" fill="white" />
+                ) : (
+                  <Play className="w-5 h-5 text-white ml-0.5" fill="white" />
+                )}
+              </button>
+            )}
+          </div>
+
+          {loading ? (
+            <p className="text-sm text-gray-500">Loading...</p>
+          ) : likedView.tracks && likedView.tracks.length > 0 ? (
+            <div className="space-y-1">
+              {likedView.tracks.map((track) => {
+                const isCurrentTrack = currentTrack?.id === track.id;
+                return (
+                  <div
+                    key={track.id}
+                    onClick={() => handleTrackClick(track)}
+                    className={`p-2 hover:bg-neutral-800 rounded cursor-pointer transition group flex items-center gap-3 ${
+                      isCurrentTrack ? 'bg-[#B93939]/20' : ''
+                    }`}
+                  >
+                    <div className="flex-shrink-0 w-8 flex items-center justify-center">
+                      {isCurrentTrack && isPlaying ? (
+                        <div className="flex gap-0.5">
+                          <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" />
+                          <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" style={{ animationDelay: '0.2s' }} />
+                          <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" style={{ animationDelay: '0.4s' }} />
+                        </div>
+                      ) : (
+                        <Play className={`w-3 h-3 opacity-0 group-hover:opacity-100 transition ${
+                          isCurrentTrack ? 'text-[#B93939]' : 'text-white'
+                        }`} fill="currentColor" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm truncate ${
+                        isCurrentTrack ? 'text-[#B93939] font-semibold' : 'text-gray-300'
+                      }`}>
+                        {track.title}
+                      </p>
+                      <p className={`text-xs truncate ${
+                        isCurrentTrack ? 'text-[#B93939]/80' : 'text-gray-500'
+                      }`}>
+                        {track.artists?.map(a => a.name).join(', ') || 'Unknown Artist'}
+                      </p>
+                    </div>
+                    <span className={`text-xs flex-shrink-0 ${
+                      isCurrentTrack ? 'text-[#B93939]' : 'text-gray-500'
+                    }`}>
+                      {formatDuration(track.duration)}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           ) : (
-            <p className="text-sm text-gray-500">No liked songs</p>
+            <div className="text-center py-8">
+              <Heart className="w-12 h-12 mx-auto mb-2 text-gray-600" />
+              <p className="text-sm text-gray-500">No liked songs yet</p>
+              <p className="text-xs text-gray-600 mt-1">Songs you like will appear here</p>
+            </div>
           )}
         </div>
       )}

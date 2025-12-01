@@ -31,7 +31,7 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-2xl font-bold text-white">Playlists</h3>
           <button
-            onClick={() => {/* TODO: Open create playlist modal */}}
+            onClick={() => {/* TODO: Open create playlist modal */ }}
             className="flex items-center gap-2 px-3 py-1.5 bg-neutral-900 hover:bg-[#B93939] text-white rounded-full transition text-sm"
           >
             <Plus className="w-4 h-4" />
@@ -84,12 +84,12 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
       {playlistView.data && (
         <div className="bg-gradient-to-b from-neutral-800 to-[#121212] rounded-lg max-h-[600px] overflow-y-auto custom-scrollbar">
           {/* Header Section */}
-          <div className="p-8 flex items-end gap-6">
+          <div className="p-8 flex flex-col md:flex-row items-center md:items-end gap-6">
             {/* Playlist Cover */}
             <div className="w-48 h-48 bg-neutral-800 rounded shadow-2xl flex-shrink-0">
               {playlistView.data.tracks && playlistView.data.tracks.length > 0 ? (
-                <img 
-                  src={getCoverUrl(playlistView.data.tracks[0].track_id)} 
+                <img
+                  src={getCoverUrl(playlistView.data.tracks[0].track_id)}
                   alt={playlistView.data.name}
                   className="w-full h-full object-cover rounded"
                 />
@@ -101,9 +101,9 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
             </div>
 
             {/* Playlist Info */}
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 text-center md:text-left">
               <p className="text-sm font-semibold text-white mb-2">Playlist</p>
-              <h1 className="text-5xl font-bold text-white mb-6 truncate">
+              <h1 className="text-2xl md:text-5xl font-bold text-white mb-4 md:mb-6 break-words line-clamp-2 md:line-clamp-1">
                 {playlistView.data.name}
               </h1>
               <div className="flex items-center gap-2 text-sm text-gray-300">
@@ -171,7 +171,7 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
                     artists: track.artists.map((name: string) => ({ name })),
                     cover_path: track.cover_path,
                   };
-                  
+
                   return (
                     <div
                       key={track.track_id}
@@ -187,19 +187,31 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
                           playTrack(fullTrack, allTracks);
                         }
                       }}
-                      className={`grid grid-cols-[40px_1fr_80px] gap-4 px-4 py-3 rounded cursor-pointer transition group ${
-                        isTrackPlaying ? 'bg-[#B93939]/20' : 'hover:bg-neutral-800'
-                      }`}
+className={`grid grid-cols-[40px_1fr_80px] gap-4 px-4 py-3 rounded hover:bg-neutral-800 cursor-pointer transition group ${
+  isTrackPlaying ? 'bg-[#B93939]/20' : ''
+}`}
                     >
-                      <div className={`text-center ${isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400 group-hover:text-white'}`}>
-                        <span className="group-hover:hidden">{index + 1}</span>
-                        <Play className="w-4 h-4 hidden group-hover:inline-block ml-1" fill="currentColor" />
-                      </div>
+{/* Track Number / Animation */}
+<div className={`text-center flex items-center justify-center ${
+  isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400 group-hover:text-white'
+}`}>
+  {isTrackPlaying && isPlaying ? (
+    <div className="flex gap-0.5">
+      <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" />
+      <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" style={{ animationDelay: '0.2s' }} />
+      <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" style={{ animationDelay: '0.4s' }} />
+    </div>
+  ) : (
+    <>
+      <span className="group-hover:hidden">{index + 1}</span>
+      <Play className="w-4 h-4 hidden group-hover:block" fill="currentColor" />
+    </>
+  )}
+</div>
 
                       <div className="min-w-0">
-                        <p className={`truncate transition ${
-                          isTrackPlaying ? 'text-[#B93939] font-semibold' : 'text-white group-hover:text-[#B93939]'
-                        }`}>
+                        <p className={`truncate transition ${isTrackPlaying ? 'text-[#B93939] font-semibold' : 'text-white group-hover:text-[#B93939]'
+                          }`}>
                           {track.title}
                         </p>
                         {track.artists && track.artists.length > 0 && (

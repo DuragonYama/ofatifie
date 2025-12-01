@@ -75,12 +75,12 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
       {albumView.data && (
         <div className="bg-gradient-to-b from-neutral-800 to-[#121212] rounded-lg max-h-[600px] overflow-y-auto custom-scrollbar">
           {/* Header Section */}
-          <div className="p-8 flex items-end gap-6">
+          <div className="p-8 flex flex-col md:flex-row items-center md:items-end gap-6">
             {/* Album Cover */}
             <div className="w-48 h-48 bg-neutral-800 rounded shadow-2xl flex-shrink-0">
               {albumView.data.tracks && albumView.data.tracks.length > 0 ? (
-                <img 
-                  src={getCoverUrl(albumView.data.tracks[0].id)} 
+                <img
+                  src={getCoverUrl(albumView.data.tracks[0].id)}
                   alt={albumView.data.name}
                   className="w-full h-full object-cover rounded"
                 />
@@ -92,10 +92,10 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
             </div>
 
             {/* Album Info */}
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 text-center md:text-left">
               <p className="text-sm font-semibold text-white mb-2">Album</p>
-              <h1 className="text-5xl font-bold text-white mb-6 truncate">
-                {albumView.data.name}
+              <h1 className="text-2xl md:text-5xl font-bold text-white mb-4 md:mb-6 break-words line-clamp-2 md:line-clamp-1">
+                {albumView.data.name}  
               </h1>
               <div className="flex items-center gap-2 text-sm text-gray-300">
                 {albumView.data.artists && albumView.data.artists.length > 0 && (
@@ -135,8 +135,8 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
                     } else if (albumView.data?.tracks && albumView.data.tracks.length > 0) {
                       const tracksWithArtists = albumView.data.tracks.map(t => ({
                         ...t,
-                        artists: t.artists && t.artists.length > 0 
-                          ? t.artists 
+                        artists: t.artists && t.artists.length > 0
+                          ? t.artists
                           : (albumView.data?.artists || []).map((name: string) => ({ name }))
                       }));
                       playTrack(tracksWithArtists[0], tracksWithArtists);
@@ -168,10 +168,10 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
                 {/* Tracks */}
                 {albumView.data.tracks.map((track, index) => {
                   const isTrackPlaying = currentTrack?.id === track.id;
-                  const trackArtists = track.artists && track.artists.length > 0 
-                    ? track.artists 
+                  const trackArtists = track.artists && track.artists.length > 0
+                    ? track.artists
                     : (albumView.data?.artists || []).map((name: string) => ({ name }));
-                  
+
                   return (
                     <div
                       key={track.id}
@@ -179,8 +179,8 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
                         if (albumView.data?.tracks) {
                           const tracksWithArtists = albumView.data.tracks.map(t => ({
                             ...t,
-                            artists: t.artists && t.artists.length > 0 
-                              ? t.artists 
+                            artists: t.artists && t.artists.length > 0
+                              ? t.artists
                               : (albumView.data?.artists || []).map((name: string) => ({ name }))
                           }));
                           playTrack(
@@ -189,13 +189,26 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
                           );
                         }
                       }}
-                      className={`grid grid-cols-[40px_1fr_80px] gap-4 px-4 py-3 rounded cursor-pointer transition group ${
-                        isTrackPlaying ? 'bg-[#B93939]/20' : 'hover:bg-neutral-800'
+                      className={`grid grid-cols-[40px_1fr_80px] gap-4 px-4 py-3 rounded hover:bg-neutral-800 cursor-pointer transition group ${
+                        isTrackPlaying ? 'bg-[#B93939]/20' : ''
                       }`}
                     >
-                      <div className={`text-center ${isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400 group-hover:text-white'}`}>
-                        <span className="group-hover:hidden">{index + 1}</span>
-                        <Play className="w-4 h-4 hidden group-hover:inline-block ml-1" fill="currentColor" />
+                      {/* Track Number / Animation */}
+                      <div className={`text-center flex items-center justify-center ${
+                        isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400 group-hover:text-white'
+                      }`}>
+                        {isTrackPlaying && isPlaying ? (
+                          <div className="flex gap-0.5">
+                            <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" />
+                            <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" style={{ animationDelay: '0.2s' }} />
+                            <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" style={{ animationDelay: '0.4s' }} />
+                          </div>
+                        ) : (
+                          <>
+                            <span className="group-hover:hidden">{index + 1}</span>
+                            <Play className="w-4 h-4 hidden group-hover:block" fill="currentColor" />
+                          </>
+                        )}
                       </div>
 
                       <div className="min-w-0">
@@ -205,13 +218,17 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
                           {track.title}
                         </p>
                         {trackArtists && trackArtists.length > 0 && (
-                          <p className={`text-sm truncate ${isTrackPlaying ? 'text-[#B93939]/80' : 'text-gray-400'}`}>
+                          <p className={`text-sm truncate ${
+                            isTrackPlaying ? 'text-[#B93939]/80' : 'text-gray-400'
+                          }`}>
                             {trackArtists.map((a: { name: string }) => a.name).join(', ')}
                           </p>
                         )}
                       </div>
 
-                      <div className={`text-right ${isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400'}`}>
+                      <div className={`text-right ${
+                        isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400'
+                      }`}>
                         {track.duration ? Math.floor(track.duration / 60) + ':' + String(track.duration % 60).padStart(2, '0') : '-'}
                       </div>
                     </div>

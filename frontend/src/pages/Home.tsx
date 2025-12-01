@@ -15,6 +15,17 @@ export default function Home() {
   const [playlists, setPlaylists] = useState<PlaylistListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Function to fetch stats (can be called from event listener)
+  const fetchStats = async () => {
+    try {
+      const statsData = await getLibraryStats();
+      setStats(statsData);
+    } catch (error) {
+      console.error('Failed to fetch stats:', error);
+    }
+  };
+
+  // Initial data fetch
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -37,12 +48,26 @@ export default function Home() {
     fetchData();
   }, []);
 
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 18) return 'Good afternoon';
-    return 'Good evening';
-  };
+  // Listen for liked songs updates
+  useEffect(() => {
+    const handleLikedSongsUpdate = () => {
+      console.log('Liked songs updated event received, refreshing stats...');
+      fetchStats();
+    };
+
+    window.addEventListener('liked-songs-updated', handleLikedSongsUpdate);
+    
+    return () => {
+      window.removeEventListener('liked-songs-updated', handleLikedSongsUpdate);
+    };
+  }, []);
+
+  // const getGreeting = () => {
+  //   const hour = new Date().getHours();
+  //   if (hour < 12) return 'Good morning';
+  //   if (hour < 18) return 'Good afternoon';
+  //   return 'Good evening';
+  // };
 
   if (loading) {
     return (
@@ -54,7 +79,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#121212] text-white flex flex-col">
-      {/* Custom Scrollbar Styles */}
       <style>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 8px;
@@ -107,9 +131,8 @@ export default function Home() {
         {/* Welcome Section */}
         <div className="mb-8">
           <h2 className="text-4xl font-bold text-white mb-2">
-            {getGreeting()}
+            {/* {getGreeting()} */}
           </h2>
-          <p className="text-gray-400">Welcome back to your music</p>
         </div>
 
         {/* 3-Column Layout: Albums | Liked Songs | Playlists */}
