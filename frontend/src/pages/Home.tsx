@@ -127,7 +127,7 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-[1800px] mx-auto px-6 pt-8 pb-32 flex-1 overflow-y-auto">
+      <main className="max-w-[1800px] mx-auto px-6 pt-8 pb-[182px] flex-1 overflow-y-auto">
         {/* Welcome Section */}
         <div className="mb-8">
           <h2 className="text-4xl font-bold text-white mb-2">

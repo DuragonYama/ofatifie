@@ -43,6 +43,7 @@ export default function MusicPlayer() {
     const [isLyricsFullscreen, setIsLyricsFullscreen] = useState(false);
     const [parsedLyrics, setParsedLyrics] = useState<LyricLine[]>([]);
     const [currentLyricIndex, setCurrentLyricIndex] = useState(-1);
+    const [previousLyricIndex, setPreviousLyricIndex] = useState(-1);
     const [isLyricsVisible, setIsLyricsVisible] = useState(false);
 
     const expandedTitleRef = useRef<HTMLHeadingElement>(null);
@@ -195,6 +196,7 @@ export default function MusicPlayer() {
     useEffect(() => {
         if (parsedLyrics.length === 0) {
             setCurrentLyricIndex(-1);
+            setPreviousLyricIndex(-1);
             return;
         }
 
@@ -207,8 +209,11 @@ export default function MusicPlayer() {
             }
         }
         
-        setCurrentLyricIndex(index);
-    }, [currentTime, parsedLyrics]);
+        if (index !== currentLyricIndex) {
+            setPreviousLyricIndex(currentLyricIndex);
+            setCurrentLyricIndex(index);
+        }
+    }, [currentTime, parsedLyrics, currentLyricIndex]);
 
     // Fetch lyrics from API
     const handleFetchLyrics = async () => {
@@ -320,31 +325,46 @@ export default function MusicPlayer() {
         }
 
         // Show only 5 lines in preview mode
-        const visibleLines = isFullscreen ? parsedLyrics : parsedLyrics.slice(
-            Math.max(0, currentLyricIndex - 1),
-            currentLyricIndex + 4
-        );
+        const startIndex = Math.max(0, currentLyricIndex - 1);
+        const endIndex = currentLyricIndex + 4;
+        const visibleLines = isFullscreen ? parsedLyrics : parsedLyrics.slice(startIndex, endIndex);
+
+        // Determine which lines are entering (new) or leaving (old)
+        const previousStartIndex = Math.max(0, previousLyricIndex - 1);
+        const isNewLineEntering = currentLyricIndex > previousLyricIndex;
 
         return (
-            <div className={`space-y-3 ${!isFullscreen ? 'text-center' : ''}`}>
+            <div className={`space-y-3 ${!isFullscreen ? 'text-center overflow-hidden' : ''}`}>
                 {visibleLines.map((line, index) => {
-                    const actualIndex = isFullscreen ? index : parsedLyrics.findIndex(l => l === line);
+                    const actualIndex = isFullscreen ? index : startIndex + index;
                     const isCurrent = actualIndex === currentLyricIndex;
                     const isPast = actualIndex < currentLyricIndex;
+                    const isFuture = actualIndex > currentLyricIndex;
+                    
+                    // Determine if this line is entering or leaving
+                    const isEntering = !isFullscreen && isNewLineEntering && actualIndex === endIndex - 1;
+                    const isLeaving = !isFullscreen && actualIndex < previousStartIndex;
+                    
+                    // Animation class
+                    let animationClass = '';
+                    if (!isFullscreen) {
+                        if (isEntering && isFuture) {
+                            animationClass = 'animate-slideUpIn';
+                        } else if (isLeaving) {
+                            animationClass = 'animate-slideUpOut';
+                        }
+                    }
                     
                     return (
                         <div
-                            key={actualIndex}
+                            key={`${actualIndex}-${line.time}`}
                             className={`transition-all duration-300 text-lg font-medium leading-relaxed ${
                                 isCurrent 
                                     ? 'text-white text-2xl' 
                                     : isPast
                                     ? 'text-white'
                                     : 'text-black'
-                            } ${!isFullscreen ? 'animate-slideUpFade' : ''}`}
-                            style={{
-                                animationDelay: !isFullscreen ? `${index * 50}ms` : '0ms'
-                            }}
+                            } ${animationClass}`}
                         >
                             {line.text}
                         </div>
@@ -364,9 +384,9 @@ export default function MusicPlayer() {
                     80% { transform: translateX(-50%); }
                     100% { transform: translateX(-50%); }
                 }
-                @keyframes slideUpFade {
+                @keyframes slideUpIn {
                     from {
-                        transform: translateY(20px);
+                        transform: translateY(100%);
                         opacity: 0;
                     }
                     to {
@@ -374,8 +394,21 @@ export default function MusicPlayer() {
                         opacity: 1;
                     }
                 }
-                .animate-slideUpFade {
-                    animation: slideUpFade 0.4s ease-out forwards;
+                @keyframes slideUpOut {
+                    from {
+                        transform: translateY(0);
+                        opacity: 1;
+                    }
+                    to {
+                        transform: translateY(-100%);
+                        opacity: 0;
+                    }
+                }
+                .animate-slideUpIn {
+                    animation: slideUpIn 0.5s ease-out forwards;
+                }
+                .animate-slideUpOut {
+                    animation: slideUpOut 0.5s ease-out forwards;
                 }
                 .marquee-container {
                     overflow: hidden;
@@ -585,7 +618,7 @@ export default function MusicPlayer() {
                                 : 'translate-y-full opacity-0'
                         }`}
                     >
-                        <div className="max-w-2xl mx-auto pt-6" ref={lyricsContainerRef}>
+                        <div className="max-w-2xl mx-auto pt-6 overflow-hidden" ref={lyricsContainerRef}>
                             <div className="flex items-center justify-between mb-6">
                                 <h3 className="text-xl font-bold text-white">Lyrics</h3>
                                 {lyrics && parsedLyrics.length > 0 && (
@@ -597,11 +630,13 @@ export default function MusicPlayer() {
                                     </button>
                                 )}
                             </div>
-                            {lyricsLoading ? (
-                                <p className="text-white text-center">Loading lyrics...</p>
-                            ) : (
-                                renderSyncedLyrics(false)
-                            )}
+                            <div className="overflow-hidden">
+                                {lyricsLoading ? (
+                                    <p className="text-white text-center">Loading lyrics...</p>
+                                ) : (
+                                    renderSyncedLyrics(false)
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -609,7 +644,7 @@ export default function MusicPlayer() {
 
             {/* Compact Player */}
             {!isExpanded && (
-                <div className="fixed bottom-0 left-0 right-0 bg-[#181818] border-t border-neutral-800 z-50">
+                <div className="fixed bottom-[80px] md:bottom-0 left-2 right-2 md:left-0 md:right-0 bg-[#181818] z-50 rounded-[24px] md:rounded-none shadow-2xl md:border-t md:border-neutral-800 overflow-hidden">
                     <div
                         className="h-1 bg-neutral-800 cursor-pointer hover:h-1.5 transition-all group"
                         onClick={handleProgressClick}
@@ -618,7 +653,7 @@ export default function MusicPlayer() {
                             className="h-full bg-[#B93939] relative group-hover:bg-[#a33232]"
                             style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
                         >
-                            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+                            <div className="hidden md:block absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
                         </div>
                     </div>
 
@@ -654,8 +689,8 @@ export default function MusicPlayer() {
                             </div>
                         </div>
 
-                        <div className="flex flex-col items-center gap-2 w-[40%] max-w-[722px]">
-                            <div className="flex items-center gap-4">
+                        <div className="flex flex-col items-center gap-2 w-full md:w-[40%] md:max-w-[722px]">
+                            <div className="flex items-center justify-center gap-4 w-full">
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
@@ -721,7 +756,7 @@ export default function MusicPlayer() {
                                 </button>
                             </div>
 
-                            <div className="flex items-center gap-2 w-full text-xs text-gray-400">
+                            <div className="hidden md:flex items-center gap-2 w-full text-xs text-gray-400">
                                 <span className="w-10 text-right">{formatTime(currentTime)}</span>
                                 <div className="flex-1" />
                                 <span className="w-10">{formatTime(duration)}</span>
