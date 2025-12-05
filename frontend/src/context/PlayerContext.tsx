@@ -38,6 +38,30 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const playNextRef = useRef<() => void>(() => {});
   const repeatModeRef = useRef<RepeatMode>('off');
 
+  /**
+   * AUDIO LOAD DELAY CONFIGURATION
+   * 
+   * This delay prevents audio from skipping the first 0.5-1.5 seconds when loading.
+   * 
+   * WHY IT'S NEEDED:
+   * - On slow PCs or bad WiFi, the browser may buffer audio starting from 0.5s instead of 0s
+   * - When we force currentTime=0, the browser may seek to where it has data buffered
+   * - This delay gives the browser time to settle and ensures playback starts at 0:00
+   * 
+   * CUSTOMIZATION:
+   * - Default: 1100ms (works reliably on most PCs)
+   * - Can be overridden via localStorage key: 'audioLoadDelay'
+   * - Users can adjust in Settings if songs skip beginning or want faster playback
+   * 
+   * TRADE-OFF:
+   * - Higher delay = more reliable, but slower to start playing
+   * - Lower delay = faster playback, but may skip beginning on slow systems
+   */
+  const getAudioLoadDelay = (): number => {
+    const storedDelay = localStorage.getItem('audioLoadDelay');
+    return storedDelay ? parseInt(storedDelay, 10) : 1100; // Default: 1100ms
+  };
+
   // Keep repeatModeRef in sync with repeatMode state
   useEffect(() => {
     repeatModeRef.current = repeatMode;
@@ -110,15 +134,68 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Reset state immediately
+    setCurrentTime(0);
+    setDuration(0);
+    setIsPlaying(false);
+
+    const audio = audioRef.current;
+    
+    // CRITICAL: Disable autoplay and pause immediately
+    audio.autoplay = false;
+    audio.pause();
+    
+    // Force currentTime to 0 BEFORE setting src
+    audio.currentTime = 0;
+
     // Load and play the track with token in URL
     const audioUrl = `http://localhost:8000/music/stream/${track.id}?token=${token}`;
-    audioRef.current.src = audioUrl;
-    audioRef.current.load();
-    audioRef.current.play().catch(err => {
-      console.error('Error playing track:', err);
-      setIsPlaying(false);
-    });
-    setIsPlaying(true);
+    audio.src = audioUrl;
+    
+    // Force to 0 again after setting src
+    audio.currentTime = 0;
+    audio.pause(); // Pause again to be safe
+    
+    // Set preload to auto to force full buffering
+    audio.preload = 'auto';
+    audio.load();
+    
+    // Wait for FULL buffering, then play with configurable delay
+    const handleCanPlayThrough = () => {
+      // Use configurable delay instead of hardcoded values
+      const playWithDelay = async () => {
+        if (!audioRef.current) return;
+        
+        const totalDelay = getAudioLoadDelay();
+        const quarterDelay = totalDelay / 4; // Split delay into 4 parts
+        
+        // Reset to 0 four times with equal delays between each
+        audioRef.current.currentTime = 0;
+        await new Promise(resolve => setTimeout(resolve, quarterDelay));
+        
+        audioRef.current.currentTime = 0;
+        await new Promise(resolve => setTimeout(resolve, quarterDelay));
+        
+        audioRef.current.currentTime = 0;
+        await new Promise(resolve => setTimeout(resolve, quarterDelay));
+        
+        // Final reset and wait before playing
+        audioRef.current.currentTime = 0;
+        await new Promise(resolve => setTimeout(resolve, quarterDelay));
+        
+        // Now play - should be locked at 0:00
+        audioRef.current.play().catch(err => {
+          console.error('Error playing track:', err);
+          setIsPlaying(false);
+        });
+        setIsPlaying(true);
+      };
+      
+      playWithDelay();
+    };
+    
+    // canplaythrough = enough data loaded to play WITHOUT stopping for buffering
+    audio.addEventListener('canplaythrough', handleCanPlayThrough, { once: true });
   };
 
   const togglePlay = () => {

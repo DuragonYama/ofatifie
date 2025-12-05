@@ -108,13 +108,16 @@ export default function MusicPlayer() {
         };
     }, [isExpanded, isLyricsFullscreen]);
 
-    // Check liked status
+    // Check liked status - DELAYED to prioritize audio playback
     useEffect(() => {
         const checkLikedStatus = async () => {
             if (!currentTrack) {
                 setIsLiked(false);
                 return;
             }
+            
+            // Wait 1 second before checking - let audio start first!
+            await new Promise(resolve => setTimeout(resolve, 1000));
             
             try {
                 const token = localStorage.getItem('token');
@@ -138,7 +141,7 @@ export default function MusicPlayer() {
         checkLikedStatus();
     }, [currentTrack?.id]);
 
-    // Fetch lyrics when track changes
+    // Fetch lyrics when track changes - DELAYED to prioritize audio playback
     useEffect(() => {
         const fetchLyrics = async () => {
             if (!currentTrack) {
@@ -147,6 +150,9 @@ export default function MusicPlayer() {
                 setIsLyricsVisible(false);
                 return;
             }
+
+            // Wait 1 second before fetching - let audio start first!
+            await new Promise(resolve => setTimeout(resolve, 1000));
 
             setLyricsLoading(true);
             try {
