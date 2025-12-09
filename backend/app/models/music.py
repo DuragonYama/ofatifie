@@ -14,8 +14,16 @@ class Artist(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     # Relationships
-    albums = relationship("AlbumArtist", back_populates="artist")
-    tracks = relationship("TrackArtist", back_populates="artist")
+    # ✅ FIXED: Direct relationship to Track through junction table
+    tracks = relationship(
+        "Track",
+        secondary="track_artists",
+        back_populates="artists",
+        lazy="selectin"
+    )
+    # Keep junction table relationship for accessing metadata
+    track_associations = relationship("TrackArtist", back_populates="artist")
+    album_associations = relationship("AlbumArtist", back_populates="artist")
 
 class Album(Base):
     """Music albums"""
@@ -34,7 +42,7 @@ class Album(Base):
     deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
     
     # Relationships
-    artists = relationship("AlbumArtist", back_populates="album")
+    artist_associations = relationship("AlbumArtist", back_populates="album")
     tracks = relationship("Track", back_populates="album")
 
 class AlbumArtist(Base):
@@ -46,8 +54,8 @@ class AlbumArtist(Base):
     artist_order = Column(Integer, default=0)  # 0=primary, 1+=featured
     
     # Relationships
-    album = relationship("Album", back_populates="artists")
-    artist = relationship("Artist", back_populates="albums")
+    album = relationship("Album", back_populates="artist_associations")
+    artist = relationship("Artist", back_populates="album_associations")
 
 class Track(Base):
     """Individual songs/tracks"""
@@ -76,12 +84,25 @@ class Track(Base):
     last_in_library = Column(DateTime(timezone=True), nullable=True)
     
     # Relationships
-    album = relationship("Album", back_populates="tracks")
-    artists = relationship("TrackArtist", back_populates="track")
+    album = relationship("Album", back_populates="tracks", lazy="selectin")
+    
+    # ✅ FIXED: Direct relationship to Artist through junction table
+    # This is what TrackResponse.artists will use
+    artists = relationship(
+        "Artist",
+        secondary="track_artists",
+        back_populates="tracks",
+        lazy="selectin",  # Eagerly load by default
+        order_by="TrackArtist.artist_order"
+    )
+    
+    # Keep junction table relationship for accessing metadata (artist_order, role)
+    artist_associations = relationship("TrackArtist", back_populates="track")
+    
     lyrics = relationship("Lyrics", back_populates="track", uselist=False)
     playlists = relationship("PlaylistSong", back_populates="track")
     liked_by = relationship("LikedSong", back_populates="track")
-    personal_tags = relationship("SongTag", back_populates="track")  # ← ADDED
+    personal_tags = relationship("SongTag", back_populates="track")
     global_tags = relationship("GlobalSongTag", back_populates="track")
 
 class TrackArtist(Base):
@@ -94,8 +115,8 @@ class TrackArtist(Base):
     role = Column(String(20), default='primary')  # primary, featured, composer, producer
     
     # Relationships
-    track = relationship("Track", back_populates="artists")
-    artist = relationship("Artist", back_populates="tracks")
+    track = relationship("Track", back_populates="artist_associations")
+    artist = relationship("Artist", back_populates="track_associations")
 
 class Lyrics(Base):
     """Song lyrics (plain text and synced LRC format)"""

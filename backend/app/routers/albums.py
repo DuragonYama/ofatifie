@@ -2,7 +2,7 @@
 Album management endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_
 from typing import List, Optional
 
@@ -70,6 +70,7 @@ def get_album(
     
     - Includes all tracks in album
     - Ordered by track number
+    - ✅ FIXED: Tracks now include artist information
     """
     album = db.query(Album).filter(
         Album.id == album_id,
@@ -89,8 +90,12 @@ def get_album(
         AlbumArtist.album_id == album.id
     ).order_by(AlbumArtist.artist_order).all()
     
-    # Get tracks
-    tracks = db.query(Track).filter(
+    # Get tracks with artists loaded
+    # ✅ FIXED: Added selectinload to eagerly load artists for each track
+    tracks = db.query(Track).options(
+        selectinload(Track.artists),  # ✅ Load track artists
+        selectinload(Track.album)     # ✅ Load album info
+    ).filter(
         Track.album_id == album_id,
         Track.deleted_at.is_(None)
     ).order_by(Track.track_number).all()

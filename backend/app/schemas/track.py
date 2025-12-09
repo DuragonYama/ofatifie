@@ -3,7 +3,15 @@ Track (song) Pydantic schemas
 """
 from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
+
+# ✅ NEW: Artist brief schema for track responses
+class ArtistBrief(BaseModel):
+    """Brief artist info for track responses"""
+    id: int
+    name: str
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class TrackUploadResponse(BaseModel):
     """Response after uploading a track"""
@@ -30,6 +38,12 @@ class TrackResponse(BaseModel):
     uploaded_by_id: int
     created_at: datetime  # Changed from uploaded_at
     play_count: int = 0
+    
+    # ✅ ADDED: Artists list (THIS IS THE KEY FIX!)
+    artists: List[ArtistBrief] = []
+    
+    # ✅ ADDED: Album ID for reference
+    album_id: Optional[int] = None
     
     model_config = ConfigDict(from_attributes=True)
 

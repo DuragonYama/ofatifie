@@ -93,8 +93,14 @@ def get_liked_songs(
     
     - Ordered by most recently liked
     - Paginated
+    - Includes artist information
     """
-    liked_songs = db.query(Track).join(
+    from sqlalchemy.orm import selectinload
+    
+    liked_songs = db.query(Track).options(
+        selectinload(Track.artists),  # ✅ Load artists eagerly
+        selectinload(Track.album)     # ✅ Load album eagerly
+    ).join(
         LikedSong, LikedSong.track_id == Track.id
     ).filter(
         LikedSong.user_id == current_user.id

@@ -2,7 +2,7 @@
 Advanced FTS5-powered search for tracks, artists, and albums
 """
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import text, and_, func
 from typing import List, Optional
 
@@ -73,11 +73,15 @@ def search_tracks(
                 t.updated_at,
                 t.deleted_at,
                 t.last_in_library,
-                fts.rank as relevance
+                fts.rank as relevance,
+                GROUP_CONCAT(ar.name, ', ') as artist_names
             FROM tracks_fts fts
             JOIN tracks t ON fts.rowid = t.id
+            LEFT JOIN track_artists ta ON t.id = ta.track_id
+            LEFT JOIN artists ar ON ta.artist_id = ar.id
             WHERE tracks_fts MATCH :search_query
             AND t.deleted_at IS NULL
+            GROUP BY t.id
         """)
         
         # Escape FTS5 special characters by wrapping in quotes
@@ -94,8 +98,11 @@ def search_tracks(
         track_ids = [tid for tid, _ in track_ids_with_rank]
         rank_map = {tid: rank for tid, rank in track_ids_with_rank}
         
-        # Get full track objects
-        tracks_query = db.query(Track).filter(
+        # Get full track objects with relationships loaded
+        tracks_query = db.query(Track).options(
+            selectinload(Track.artists),  # ✅ Load artists
+            selectinload(Track.album)     # ✅ Load album
+        ).filter(
             Track.id.in_(track_ids),
             Track.deleted_at.is_(None)
         )
@@ -131,7 +138,11 @@ def search_tracks(
     
     else:
         # No search query - return all tracks with filters (browse mode)
-        tracks_query = db.query(Track).filter(Track.deleted_at.is_(None))
+        # ✅ FIXED: Load artists and album relationships
+        tracks_query = db.query(Track).options(
+            selectinload(Track.artists),  # ✅ Load artists eagerly
+            selectinload(Track.album)     # ✅ Load album eagerly
+        ).filter(Track.deleted_at.is_(None))
         
         # Apply filters
         if genre:

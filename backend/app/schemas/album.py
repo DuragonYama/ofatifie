@@ -20,6 +20,14 @@ class AlbumWithArtists(AlbumBase):
     """Album with artist names"""
     artists: List[str] = []  # List of artist names
 
+# ✅ NEW: Artist brief for tracks in albums
+class ArtistBrief(BaseModel):
+    """Brief artist info"""
+    id: int
+    name: str
+    
+    model_config = ConfigDict(from_attributes=True)
+
 class TrackMinimal(BaseModel):
     """Minimal track info for album view"""
     id: int
@@ -27,6 +35,10 @@ class TrackMinimal(BaseModel):
     duration: int
     track_number: Optional[int] = None
     play_count: int = 0
+    cover_path: Optional[str] = None  # ✅ ADDED: For cover art
+    
+    # ✅ ADDED: Artists list so album tracks show artists!
+    artists: List[ArtistBrief] = []
     
     model_config = ConfigDict(from_attributes=True)
 

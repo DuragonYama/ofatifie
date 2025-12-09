@@ -12,6 +12,8 @@ interface Track {
     album?: { name: string } | string;
     album_name?: string;
     cover_path?: string;
+    created_at?: string;
+    play_count?: number;
 }
 
 interface Album {
@@ -20,11 +22,15 @@ interface Album {
     release_year?: number;
     artists: string[];
     cover_path?: string;
+    genre?: string;
+    total_tracks?: number;
+    tracks?: Track[];   
 }
 
 interface Artist {
     id: number;
     name: string;
+    track_count?: number;
 }
 
 interface AutocompleteSuggestions {
@@ -33,11 +39,46 @@ interface AutocompleteSuggestions {
     albums: { id: number; name: string }[];
 }
 
+interface Playlist {
+    id: number;
+    name: string;
+    description?: string;
+    cover_path?: string;
+    is_collaborative: boolean;
+    owner_id: number;
+    tracks?: PlaylistTrack[];
+}
+
+interface PlaylistTrack {
+    track_id: number;
+    title: string;
+    duration: number;
+    artists: string[];
+    cover_path?: string;
+}
+
+interface Genre {
+    name: string;
+    count: number;
+}
+
+interface PlayHistory {
+    id: number;
+    track_id: number;
+    track_title: string;
+    started_at: string;
+    duration_played: number;
+    completed: boolean;
+    track?: Track;
+}
+
+type ViewMode = 'search' | 'browse' | 'album-detail' | 'playlist-detail' | 'artist-detail' | 'genre-detail';
+type SongSort = 'recent' | 'title' | 'plays' | 'duration';
 type BrowseCategory = 'all' | 'songs' | 'albums' | 'artists' | 'playlists' | 'genres' | 'recent';
 
 export default function Search() {
     const navigate = useNavigate();
-    const { playTrack } = usePlayer();
+    const { playTrack, currentTrack, isPlaying, togglePlay } = usePlayer();
     
     const [query, setQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<BrowseCategory>('all');
@@ -46,9 +87,54 @@ export default function Search() {
     const [tracks, setTracks] = useState<Track[]>([]);
     const [albums, setAlbums] = useState<Album[]>([]);
     const [loading, setLoading] = useState(false);
+    // Add these new states:
+    const [viewMode, setViewMode] = useState<ViewMode>('browse');
+    const [artists, setArtists] = useState<Artist[]>([]);
+    const [playlists, setPlaylists] = useState<Playlist[]>([]);
+    const [genres, setGenres] = useState<Genre[]>([]);
+    const [playHistory, setPlayHistory] = useState<PlayHistory[]>([]);
+    const [selectedAlbum, setSelectedAlbum] = useState<Album | null>(null);
+    const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
+    const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+    const [songsSkip, setSongsSkip] = useState(0);
+    const [songsHasMore, setSongsHasMore] = useState(true);
+    const [songSort, setSongSort] = useState<SongSort>('recent');
+    const [showSortDropdown, setShowSortDropdown] = useState(false);
+    const sortDropdownRef = useRef<HTMLDivElement>(null);
     
     const searchInputRef = useRef<HTMLInputElement>(null);
     const suggestionsRef = useRef<HTMLDivElement>(null);
+
+    const genreColors: Record<string, string> = {
+    'pop': 'from-pink-500 to-purple-500',
+    'rock': 'from-red-500 to-orange-500',
+    'hip hop': 'from-yellow-500 to-orange-500',
+    'rap': 'from-yellow-500 to-orange-500',
+    'electronic': 'from-cyan-500 to-blue-500',
+    'edm': 'from-cyan-500 to-blue-500',
+    'jazz': 'from-amber-500 to-yellow-500',
+    'classical': 'from-violet-500 to-purple-500',
+    'country': 'from-orange-500 to-red-500',
+    'r&b': 'from-purple-500 to-pink-500',
+    'metal': 'from-gray-700 to-gray-900',
+    'indie': 'from-teal-500 to-green-500',
+    'alternative': 'from-green-500 to-teal-500',
+    'folk': 'from-amber-600 to-orange-600',
+    'blues': 'from-blue-600 to-indigo-600',
+    'reggae': 'from-green-600 to-yellow-500',
+    'latin': 'from-red-500 to-pink-500',
+    'soundtrack': 'from-indigo-500 to-purple-500',
+    'anime': 'from-pink-400 to-purple-400',
+    'default': 'from-neutral-700 to-neutral-800'
+};
+
+const getGenreColor = (genre: string): string => {
+    const lowerGenre = genre.toLowerCase();
+    for (const [key, color] of Object.entries(genreColors)) {
+        if (lowerGenre.includes(key)) return color;
+    }
+    return genreColors.default;
+};
 
     // Browse categories with icons
     const browseCategories = [
@@ -101,6 +187,7 @@ export default function Search() {
 
         setLoading(true);
         setShowSuggestions(false); // Close dropdown when fetching results
+        setViewMode('search');
         
         try {
             const token = localStorage.getItem('token');
@@ -153,15 +240,25 @@ export default function Search() {
         }
     };
 
-    // Handle browse category click
     const handleCategoryClick = (category: BrowseCategory) => {
         setSelectedCategory(category);
-        setTracks([]);
-        setAlbums([]);
-        
-        // If there's a query, re-fetch with new filter
-        if (query) {
-            fetchResults(query);
+        setQuery('');
+        setViewMode('browse');
+        setShowSuggestions(false);
+
+        // Fetch data for the selected category
+        if (category === 'songs') {
+            fetchBrowseSongs(0, songSort);
+        } else if (category === 'albums') {
+            fetchBrowseAlbums();
+        } else if (category === 'artists') {
+            fetchBrowseArtists();
+        } else if (category === 'playlists') {
+            fetchBrowsePlaylists();
+        } else if (category === 'genres') {
+            fetchBrowseGenres();
+        } else if (category === 'recent') {
+            fetchPlayHistory();
         }
     };
 
@@ -192,6 +289,215 @@ export default function Search() {
             setLoading(false);
         }
     };
+
+    const fetchBrowseSongs = async (skip: number = 0, sort: SongSort = 'recent') => {
+    setLoading(true);
+    try {
+        const token = localStorage.getItem('token');
+        let orderBy = 'created_at DESC';
+        
+        switch (sort) {
+            case 'title':
+                orderBy = 'title ASC';
+                break;
+            case 'plays':
+                orderBy = 'play_count DESC';
+                break;
+            case 'duration':
+                orderBy = 'duration DESC';
+                break;
+        }
+        
+        const response = await fetch(
+            `http://localhost:8000/music/tracks?skip=${skip}&limit=100&order_by=${orderBy}`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (skip === 0) {
+                setTracks(data);
+            } else {
+                setTracks(prev => [...prev, ...data]);
+            }
+            setSongsHasMore(data.length === 100);
+            setSongsSkip(skip);
+        }
+    } catch (error) {
+        console.error('Failed to fetch songs:', error);
+    } finally {
+        setLoading(false);
+    }
+};
+
+const fetchBrowseAlbums = async () => {
+    setLoading(true);
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`http://localhost:8000/albums?limit=100`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) setAlbums(await response.json());
+    } catch (error) {
+        console.error('Failed to fetch albums:', error);
+    } finally {
+        setLoading(false);
+    }
+};
+
+const fetchBrowseArtists = async () => {
+    setLoading(true);
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`http://localhost:8000/search/artists?limit=100`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) setArtists(await response.json());
+    } catch (error) {
+        console.error('Failed to fetch artists:', error);
+    } finally {
+        setLoading(false);
+    }
+};
+
+const fetchBrowsePlaylists = async () => {
+    setLoading(true);
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`http://localhost:8000/playlists`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) setPlaylists(await response.json());
+    } catch (error) {
+        console.error('Failed to fetch playlists:', error);
+    } finally {
+        setLoading(false);
+    }
+};
+
+const fetchBrowseGenres = async () => {
+    setLoading(true);
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`http://localhost:8000/search/genres`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) setGenres(await response.json());
+    } catch (error) {
+        console.error('Failed to fetch genres:', error);
+    } finally {
+        setLoading(false);
+    }
+};
+
+const fetchPlayHistory = async () => {
+    setLoading(true);
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`http://localhost:8000/playback/history?limit=50`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            // Fetch full track details for each history item
+            const tracksPromises = data.map(async (item: PlayHistory) => {
+                const trackResponse = await fetch(
+                    `http://localhost:8000/music/tracks/${item.track_id}`,
+                    { headers: { 'Authorization': `Bearer ${token}` } }
+                );
+                if (trackResponse.ok) {
+                    const track = await trackResponse.json();
+                    return { ...item, track };
+                }
+                return item;
+            });
+            const historyWithTracks = await Promise.all(tracksPromises);
+            setPlayHistory(historyWithTracks);
+        }
+    } catch (error) {
+        console.error('Failed to fetch play history:', error);
+    } finally {
+        setLoading(false);
+    }
+};
+
+const handleAlbumClick = async (albumId: number) => {
+    setLoading(true);
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`http://localhost:8000/albums/${albumId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+            const albumData = await response.json();
+            setSelectedAlbum(albumData);
+            setViewMode('album-detail');
+        }
+    } catch (error) {
+        console.error('Failed to fetch album:', error);
+    } finally {
+        setLoading(false);
+    }
+};
+
+const handlePlaylistClick = async (playlistId: number) => {
+    setLoading(true);
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`http://localhost:8000/playlists/${playlistId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+            const playlistData = await response.json();
+            setSelectedPlaylist(playlistData);
+            setViewMode('playlist-detail');
+        }
+    } catch (error) {
+        console.error('Failed to fetch playlist:', error);
+    } finally {
+        setLoading(false);
+    }
+};
+
+const handleArtistClick = (artistName: string) => {
+    setQuery(artistName);
+    setViewMode('artist-detail');
+    fetchResults(artistName);
+};
+
+const handleGenreClick = async (genreName: string) => {
+    setSelectedGenre(genreName);
+    setViewMode('genre-detail');
+    setLoading(true);
+    
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(
+            `http://localhost:8000/search/tracks?query=${encodeURIComponent(genreName)}&limit=100`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        if (response.ok) setTracks(await response.json());
+    } catch (error) {
+        console.error('Failed to fetch genre tracks:', error);
+    } finally {
+        setLoading(false);
+    }
+};
+
+const handleBack = () => {
+    setViewMode('browse');
+    setSelectedAlbum(null);
+    setSelectedPlaylist(null);
+    setSelectedGenre(null);
+    
+    // Re-fetch browse data
+    if (selectedCategory === 'albums') {
+        fetchBrowseAlbums();
+    } else if (selectedCategory === 'playlists') {
+        fetchBrowsePlaylists();
+    }
+};
 
     // Handle suggestion click - fill search box and search (or fetch album tracks)
     const handleSuggestionClick = (type: 'track' | 'album' | 'artist', text: string, id?: number) => {
@@ -242,7 +548,8 @@ export default function Search() {
         playTrack(track as any, tracks as any);
     };
 
-    const showResults = query.length > 0 && (tracks.length > 0 || albums.length > 0);
+    const showResults = viewMode === 'search' && query.trim().length > 0;
+    const showBrowse = viewMode === 'browse' || viewMode.includes('-detail');
 
     return (
         <div className="min-h-screen bg-[#121212] text-white pb-[182px]">

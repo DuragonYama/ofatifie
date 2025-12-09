@@ -315,8 +315,13 @@ def get_track(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get track details by ID"""
-    track = db.query(Track).filter(Track.id == track_id).first()
+    """Get track details by ID with artists"""
+    from sqlalchemy.orm import selectinload
+    
+    track = db.query(Track).options(
+        selectinload(Track.artists),  
+        selectinload(Track.album)   
+    ).filter(Track.id == track_id).first()
     
     if not track:
         raise HTTPException(
@@ -334,12 +339,18 @@ def list_tracks(
     db: Session = Depends(get_db)
 ):
     """
-    List all tracks
+    List all tracks with artists and albums
     
     - Paginated results
     - Returns up to 50 tracks per request
     """
-    tracks = db.query(Track).offset(skip).limit(limit).all()
+    from sqlalchemy.orm import selectinload
+    
+    tracks = db.query(Track).options(
+        selectinload(Track.artists),  # ✅ Load artists
+        selectinload(Track.album)     # ✅ Load album
+    ).filter(Track.deleted_at == None).offset(skip).limit(limit).all()
+    
     return tracks
 
 @router.post("/download/spotify", status_code=status.HTTP_202_ACCEPTED)
