@@ -1,64 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search as SearchIcon, Music, Disc3, User, ListMusic, Tag, Clock } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Search as SearchIcon, Music, Disc3, User, ListMusic, Tag, Clock, ArrowLeft } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
+import type { Track, Album, Artist, Playlist } from '../types';
+import AlbumDetailView from '../components/search/AlbumDetailView';
+import PlaylistDetailView from '../components/search/PlaylistDetailView';
+import BrowseViews from '../components/search/BrowseViews';
 
-interface Track {
-    id: number;
-    title: string;
-    duration: number;
-    artists?: { name: string }[] | string[]; // Can be objects or strings
-    artist_names?: string; // Some APIs return comma-separated string
-    album?: { name: string } | string;
-    album_name?: string;
-    cover_path?: string;
-    created_at?: string;
-    play_count?: number;
-}
-
-interface Album {
-    id: number;
-    name: string;
-    release_year?: number;
-    artists: string[];
-    cover_path?: string;
-    genre?: string;
-    total_tracks?: number;
-    tracks?: Track[];   
-}
-
-interface Artist {
-    id: number;
-    name: string;
-    track_count?: number;
-}
-
+// Local types not in main types file
 interface AutocompleteSuggestions {
     tracks: { id: number; title: string }[];
     artists: { id: number; name: string }[];
     albums: { id: number; name: string }[];
 }
 
-interface Playlist {
-    id: number;
-    name: string;
-    description?: string;
-    cover_path?: string;
-    is_collaborative: boolean;
-    owner_id: number;
-    tracks?: PlaylistTrack[];
-}
-
-interface PlaylistTrack {
-    track_id: number;
-    title: string;
-    duration: number;
-    artists: string[];
-    cover_path?: string;
-}
-
 interface Genre {
-    name: string;
+    name?: string;
+    genre?: string;  // Backend might use 'genre' instead of 'name'
     count: number;
 }
 
@@ -77,17 +34,18 @@ type SongSort = 'recent' | 'title' | 'plays' | 'duration';
 type BrowseCategory = 'all' | 'songs' | 'albums' | 'artists' | 'playlists' | 'genres' | 'recent';
 
 export default function Search() {
-    const navigate = useNavigate();
-    const { playTrack, currentTrack, isPlaying, togglePlay } = usePlayer();
+    const { playTrack, currentTrack } = usePlayer();
     
     const [query, setQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<BrowseCategory>('all');
     const [suggestions, setSuggestions] = useState<AutocompleteSuggestions | null>(null);
     const [showSuggestions, setShowSuggestions] = useState(false);
+    const [hasSearched, setHasSearched] = useState(false); // Track if user explicitly searched
     const [tracks, setTracks] = useState<Track[]>([]);
     const [albums, setAlbums] = useState<Album[]>([]);
     const [loading, setLoading] = useState(false);
-    // Add these new states:
+    
+    // Browse mode states
     const [viewMode, setViewMode] = useState<ViewMode>('browse');
     const [artists, setArtists] = useState<Artist[]>([]);
     const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -100,54 +58,56 @@ export default function Search() {
     const [songsHasMore, setSongsHasMore] = useState(true);
     const [songSort, setSongSort] = useState<SongSort>('recent');
     const [showSortDropdown, setShowSortDropdown] = useState(false);
-    const sortDropdownRef = useRef<HTMLDivElement>(null);
     
     const searchInputRef = useRef<HTMLInputElement>(null);
     const suggestionsRef = useRef<HTMLDivElement>(null);
 
     const genreColors: Record<string, string> = {
-    'pop': 'from-pink-500 to-purple-500',
-    'rock': 'from-red-500 to-orange-500',
-    'hip hop': 'from-yellow-500 to-orange-500',
-    'rap': 'from-yellow-500 to-orange-500',
-    'electronic': 'from-cyan-500 to-blue-500',
-    'edm': 'from-cyan-500 to-blue-500',
-    'jazz': 'from-amber-500 to-yellow-500',
-    'classical': 'from-violet-500 to-purple-500',
-    'country': 'from-orange-500 to-red-500',
-    'r&b': 'from-purple-500 to-pink-500',
-    'metal': 'from-gray-700 to-gray-900',
-    'indie': 'from-teal-500 to-green-500',
-    'alternative': 'from-green-500 to-teal-500',
-    'folk': 'from-amber-600 to-orange-600',
-    'blues': 'from-blue-600 to-indigo-600',
-    'reggae': 'from-green-600 to-yellow-500',
-    'latin': 'from-red-500 to-pink-500',
-    'soundtrack': 'from-indigo-500 to-purple-500',
-    'anime': 'from-pink-400 to-purple-400',
-    'default': 'from-neutral-700 to-neutral-800'
-};
+        'pop': 'from-pink-500 to-purple-500',
+        'rock': 'from-red-500 to-orange-500',
+        'hip hop': 'from-yellow-500 to-orange-500',
+        'rap': 'from-yellow-500 to-orange-500',
+        'electronic': 'from-cyan-500 to-blue-500',
+        'edm': 'from-cyan-500 to-blue-500',
+        'jazz': 'from-amber-500 to-yellow-500',
+        'classical': 'from-violet-500 to-purple-500',
+        'country': 'from-orange-500 to-red-500',
+        'r&b': 'from-purple-500 to-pink-500',
+        'metal': 'from-gray-700 to-gray-900',
+        'indie': 'from-teal-500 to-green-500',
+        'alternative': 'from-green-500 to-teal-500',
+        'folk': 'from-amber-600 to-orange-600',
+        'blues': 'from-blue-600 to-indigo-600',
+        'reggae': 'from-green-600 to-yellow-500',
+        'latin': 'from-red-500 to-pink-500',
+        'soundtrack': 'from-indigo-500 to-purple-500',
+        'anime': 'from-pink-400 to-purple-400',
+        'default': 'from-neutral-700 to-neutral-800'
+    };
 
-const getGenreColor = (genre: string): string => {
-    const lowerGenre = genre.toLowerCase();
-    for (const [key, color] of Object.entries(genreColors)) {
-        if (lowerGenre.includes(key)) return color;
-    }
-    return genreColors.default;
-};
-
-    // Browse categories with icons
+    // Browse categories
     const browseCategories = [
-        { id: 'songs', label: 'Songs', icon: Music },
-        { id: 'albums', label: 'Albums', icon: Disc3 },
-        { id: 'artists', label: 'Artists', icon: User },
-        { id: 'playlists', label: 'Playlists', icon: ListMusic },
-        { id: 'genres', label: 'Genres', icon: Tag },
-        { id: 'recent', label: 'Recently Played', icon: Clock },
+        { id: 'songs' as BrowseCategory, label: 'Songs', icon: Music },
+        { id: 'albums' as BrowseCategory, label: 'Albums', icon: Disc3 },
+        { id: 'artists' as BrowseCategory, label: 'Artists', icon: User },
+        { id: 'playlists' as BrowseCategory, label: 'Playlists', icon: ListMusic },
+        { id: 'genres' as BrowseCategory, label: 'Genres', icon: Tag },
+        { id: 'recent' as BrowseCategory, label: 'Recently Played', icon: Clock },
     ];
 
-    // Fetch autocomplete suggestions (debounced)
+    // Fetch autocomplete suggestions
     useEffect(() => {
+        // Reset hasSearched when user types (so autocomplete can show again)
+        if (query.length >= 2 && hasSearched) {
+            setHasSearched(false);
+        }
+        
+        // Don't show suggestions in detail views or browse mode
+        if (viewMode === 'browse' || viewMode.includes('-detail')) {
+            setShowSuggestions(false);
+            return;
+        }
+        
         if (query.length < 2) {
             setSuggestions(null);
             setShowSuggestions(false);
@@ -159,23 +119,24 @@ const getGenreColor = (genre: string): string => {
                 const token = localStorage.getItem('token');
                 const response = await fetch(
                     `http://localhost:8000/search/suggest?query=${encodeURIComponent(query)}&limit=5`,
-                    {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    }
+                    { headers: { 'Authorization': `Bearer ${token}` } }
                 );
                 
                 if (response.ok) {
                     const data = await response.json();
                     setSuggestions(data);
-                    setShowSuggestions(true);
+                    // Show suggestions when typing (not after explicit search)
+                    if (!hasSearched) {
+                        setShowSuggestions(true);
+                    }
                 }
             } catch (error) {
                 console.error('Failed to fetch suggestions:', error);
             }
-        }, 300); // 300ms debounce
+        }, 300);
 
         return () => clearTimeout(timer);
-    }, [query]);
+    }, [query, viewMode, hasSearched]);
 
     // Fetch search results
     const fetchResults = async (searchQuery: string) => {
@@ -186,24 +147,20 @@ const getGenreColor = (genre: string): string => {
         }
 
         setLoading(true);
-        setShowSuggestions(false); // Close dropdown when fetching results
+        setShowSuggestions(false);
+        setHasSearched(true); // Mark that user explicitly searched
         setViewMode('search');
         
         try {
             const token = localStorage.getItem('token');
 
-            // Fetch based on selected category
             if (selectedCategory === 'all' || selectedCategory === 'songs') {
                 const tracksResponse = await fetch(
                     `http://localhost:8000/search/tracks?query=${encodeURIComponent(searchQuery)}&limit=20`,
-                    {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    }
+                    { headers: { 'Authorization': `Bearer ${token}` } }
                 );
                 if (tracksResponse.ok) {
-                    const tracksData = await tracksResponse.json();
-                    console.log('Tracks data:', tracksData); // Debug log
-                    setTracks(tracksData);
+                    setTracks(await tracksResponse.json());
                 } else {
                     setTracks([]);
                 }
@@ -212,14 +169,10 @@ const getGenreColor = (genre: string): string => {
             if (selectedCategory === 'all' || selectedCategory === 'albums') {
                 const albumsResponse = await fetch(
                     `http://localhost:8000/albums?search=${encodeURIComponent(searchQuery)}&limit=20`,
-                    {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    }
+                    { headers: { 'Authorization': `Bearer ${token}` } }
                 );
                 if (albumsResponse.ok) {
-                    const albumsData = await albumsResponse.json();
-                    console.log('Albums data:', albumsData); // Debug log
-                    setAlbums(albumsData);
+                    setAlbums(await albumsResponse.json());
                 } else {
                     setAlbums([]);
                 }
@@ -231,10 +184,9 @@ const getGenreColor = (genre: string): string => {
         }
     };
 
-    // Handle search submit
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        setShowSuggestions(false); // Close dropdown
+        setShowSuggestions(false);
         if (query.trim()) {
             fetchResults(query);
         }
@@ -245,8 +197,8 @@ const getGenreColor = (genre: string): string => {
         setQuery('');
         setViewMode('browse');
         setShowSuggestions(false);
+        setHasSearched(false);  // Reset search flag
 
-        // Fetch data for the selected category
         if (category === 'songs') {
             fetchBrowseSongs(0, songSort);
         } else if (category === 'albums') {
@@ -262,261 +214,298 @@ const getGenreColor = (genre: string): string => {
         }
     };
 
-    // Fetch tracks by album ID
-    const fetchTracksByAlbum = async (albumId: number, albumName: string) => {
+    const fetchBrowseSongs = async (skip: number = 0, sort: SongSort = 'recent') => {
         setLoading(true);
-        setShowSuggestions(false);
-        setQuery(albumName); // Show album name in search box
-        
         try {
             const token = localStorage.getItem('token');
+            let orderBy = 'created_at DESC';
+            
+            switch (sort) {
+                case 'title':
+                    orderBy = 'title ASC';
+                    break;
+                case 'plays':
+                    orderBy = 'play_count DESC';
+                    break;
+                case 'duration':
+                    orderBy = 'duration DESC';
+                    break;
+            }
+            
             const response = await fetch(
-                `http://localhost:8000/albums/${albumId}`,
-                {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                }
+                `http://localhost:8000/music/tracks?skip=${skip}&limit=100&order_by=${orderBy}`,
+                { headers: { 'Authorization': `Bearer ${token}` } }
             );
             
             if (response.ok) {
-                const albumData = await response.json();
-                // Set tracks from the album
-                setTracks(albumData.tracks || []);
-                setAlbums([]); // Clear albums
+                const data = await response.json();
+                if (skip === 0) {
+                    setTracks(data);
+                } else {
+                    setTracks(prev => [...prev, ...data]);
+                }
+                setSongsHasMore(data.length === 100);
+                setSongsSkip(skip);
             }
         } catch (error) {
-            console.error('Failed to fetch album tracks:', error);
+            console.error('Failed to fetch songs:', error);
         } finally {
             setLoading(false);
         }
     };
 
-    const fetchBrowseSongs = async (skip: number = 0, sort: SongSort = 'recent') => {
-    setLoading(true);
-    try {
-        const token = localStorage.getItem('token');
-        let orderBy = 'created_at DESC';
-        
-        switch (sort) {
-            case 'title':
-                orderBy = 'title ASC';
-                break;
-            case 'plays':
-                orderBy = 'play_count DESC';
-                break;
-            case 'duration':
-                orderBy = 'duration DESC';
-                break;
+    const fetchBrowseAlbums = async () => {
+        setLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:8000/albums?limit=100`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                setAlbums(await response.json());
+            }
+        } catch (error) {
+            console.error('Failed to fetch albums:', error);
+        } finally {
+            setLoading(false);
         }
+    };
+
+    const fetchBrowseArtists = async () => {
+        setLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            // Fetch all tracks and extract unique artists (since /search/artists needs query)
+            const response = await fetch(`http://localhost:8000/music/tracks?skip=0&limit=1000`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (response.ok) {
+                const tracks: Track[] = await response.json();
+                
+                // Extract unique artists with track counts
+                const artistMap = new Map<string, { name: string; count: number; id: number }>();
+                
+                tracks.forEach(track => {
+                    if (track.artists && track.artists.length > 0) {
+                        track.artists.forEach(artist => {
+                            const name = artist.name;
+                            const id = artist.id || 0;
+                            if (artistMap.has(name)) {
+                                artistMap.get(name)!.count++;
+                            } else {
+                                artistMap.set(name, { name, count: 1, id });
+                            }
+                        });
+                    }
+                });
+                
+                // Convert to array and sort by track count
+                const uniqueArtists: Artist[] = Array.from(artistMap.values())
+                    .map(artist => ({
+                        id: artist.id,
+                        name: artist.name,
+                        track_count: artist.count
+                    }))
+                    .sort((a, b) => (b.track_count || 0) - (a.track_count || 0));
+                
+                setArtists(uniqueArtists);
+            } else {
+                console.error('Failed to fetch tracks:', response.status);
+            }
+        } catch (error) {
+            console.error('Failed to fetch artists:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchBrowsePlaylists = async () => {
+        setLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:8000/playlists`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) setPlaylists(await response.json());
+        } catch (error) {
+            console.error('Failed to fetch playlists:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchBrowseGenres = async () => {
+        setLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:8000/search/genres`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setGenres(data);
+            }
+        } catch (error) {
+            console.error('Failed to fetch genres:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchPlayHistory = async () => {
+        setLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:8000/playback/history?limit=50`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                const tracksPromises = data.map(async (item: PlayHistory) => {
+                    const trackResponse = await fetch(
+                        `http://localhost:8000/music/tracks/${item.track_id}`,
+                        { headers: { 'Authorization': `Bearer ${token}` } }
+                    );
+                    if (trackResponse.ok) {
+                        const track = await trackResponse.json();
+                        return { ...item, track };
+                    }
+                    return item;
+                });
+                const historyWithTracks = await Promise.all(tracksPromises);
+                setPlayHistory(historyWithTracks);
+            }
+        } catch (error) {
+            console.error('Failed to fetch play history:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAlbumClick = async (albumId: number) => {
+        setShowSuggestions(false);  // Hide autocomplete
+        setLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:8000/albums/${albumId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const albumData = await response.json();
+                setSelectedAlbum(albumData);
+                setViewMode('album-detail');
+            }
+        } catch (error) {
+            console.error('Failed to fetch album:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handlePlaylistClick = async (playlistId: number) => {
+        setShowSuggestions(false);  // Hide autocomplete
+        setLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:8000/playlists/${playlistId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const playlistData = await response.json();
+                setSelectedPlaylist(playlistData);
+                setViewMode('playlist-detail');
+            }
+        } catch (error) {
+            console.error('Failed to fetch playlist:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleArtistClick = async (artistName: string) => {
+        setQuery(artistName);
+        setShowSuggestions(false);  // Hide autocomplete
+        setViewMode('artist-detail');
+        setLoading(true);
         
-        const response = await fetch(
-            `http://localhost:8000/music/tracks?skip=${skip}&limit=100&order_by=${orderBy}`,
-            { headers: { 'Authorization': `Bearer ${token}` } }
-        );
-        
-        if (response.ok) {
-            const data = await response.json();
-            if (skip === 0) {
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(
+                `http://localhost:8000/search/tracks?query=${encodeURIComponent(artistName)}&limit=100`,
+                { headers: { 'Authorization': `Bearer ${token}` } }
+            );
+            
+            if (response.ok) {
+                const data = await response.json();
                 setTracks(data);
             } else {
-                setTracks(prev => [...prev, ...data]);
+                console.error('Failed to fetch artist tracks');
+                setTracks([]);
             }
-            setSongsHasMore(data.length === 100);
-            setSongsSkip(skip);
+        } catch (error) {
+            console.error('Failed to fetch artist tracks:', error);
+            setTracks([]);
+        } finally {
+            setLoading(false);
         }
-    } catch (error) {
-        console.error('Failed to fetch songs:', error);
-    } finally {
-        setLoading(false);
-    }
-};
+    };
 
-const fetchBrowseAlbums = async () => {
-    setLoading(true);
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/albums?limit=100`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) setAlbums(await response.json());
-    } catch (error) {
-        console.error('Failed to fetch albums:', error);
-    } finally {
-        setLoading(false);
-    }
-};
-
-const fetchBrowseArtists = async () => {
-    setLoading(true);
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/search/artists?limit=100`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) setArtists(await response.json());
-    } catch (error) {
-        console.error('Failed to fetch artists:', error);
-    } finally {
-        setLoading(false);
-    }
-};
-
-const fetchBrowsePlaylists = async () => {
-    setLoading(true);
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/playlists`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) setPlaylists(await response.json());
-    } catch (error) {
-        console.error('Failed to fetch playlists:', error);
-    } finally {
-        setLoading(false);
-    }
-};
-
-const fetchBrowseGenres = async () => {
-    setLoading(true);
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/search/genres`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) setGenres(await response.json());
-    } catch (error) {
-        console.error('Failed to fetch genres:', error);
-    } finally {
-        setLoading(false);
-    }
-};
-
-const fetchPlayHistory = async () => {
-    setLoading(true);
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/playback/history?limit=50`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+    const handleGenreClick = async (genreName: string) => {
+        setSelectedGenre(genreName);
+        setShowSuggestions(false);  // Hide autocomplete
+        setViewMode('genre-detail');
+        setLoading(true);
         
-        if (response.ok) {
-            const data = await response.json();
-            // Fetch full track details for each history item
-            const tracksPromises = data.map(async (item: PlayHistory) => {
-                const trackResponse = await fetch(
-                    `http://localhost:8000/music/tracks/${item.track_id}`,
-                    { headers: { 'Authorization': `Bearer ${token}` } }
-                );
-                if (trackResponse.ok) {
-                    const track = await trackResponse.json();
-                    return { ...item, track };
-                }
-                return item;
-            });
-            const historyWithTracks = await Promise.all(tracksPromises);
-            setPlayHistory(historyWithTracks);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(
+                `http://localhost:8000/search/tracks?query=${encodeURIComponent(genreName)}&limit=100`,
+                { headers: { 'Authorization': `Bearer ${token}` } }
+            );
+            if (response.ok) {
+                const data = await response.json();
+                setTracks(data);
+            }
+        } catch (error) {
+            console.error('Failed to fetch genre tracks:', error);
+        } finally {
+            setLoading(false);
         }
-    } catch (error) {
-        console.error('Failed to fetch play history:', error);
-    } finally {
-        setLoading(false);
-    }
-};
+    };
 
-const handleAlbumClick = async (albumId: number) => {
-    setLoading(true);
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/albums/${albumId}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-            const albumData = await response.json();
-            setSelectedAlbum(albumData);
-            setViewMode('album-detail');
+    const handleBack = () => {
+        setViewMode('browse');
+        setSelectedAlbum(null);
+        setSelectedPlaylist(null);
+        setSelectedGenre(null);
+        setShowSuggestions(false);  // Hide suggestions
+        setQuery('');  // Clear search query
+        setHasSearched(false);  // Reset search flag
+        
+        if (selectedCategory === 'albums') {
+            fetchBrowseAlbums();
+        } else if (selectedCategory === 'playlists') {
+            fetchBrowsePlaylists();
+        } else if (selectedCategory === 'artists') {
+            fetchBrowseArtists();
         }
-    } catch (error) {
-        console.error('Failed to fetch album:', error);
-    } finally {
-        setLoading(false);
-    }
-};
+    };
 
-const handlePlaylistClick = async (playlistId: number) => {
-    setLoading(true);
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:8000/playlists/${playlistId}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-            const playlistData = await response.json();
-            setSelectedPlaylist(playlistData);
-            setViewMode('playlist-detail');
-        }
-    } catch (error) {
-        console.error('Failed to fetch playlist:', error);
-    } finally {
-        setLoading(false);
-    }
-};
-
-const handleArtistClick = (artistName: string) => {
-    setQuery(artistName);
-    setViewMode('artist-detail');
-    fetchResults(artistName);
-};
-
-const handleGenreClick = async (genreName: string) => {
-    setSelectedGenre(genreName);
-    setViewMode('genre-detail');
-    setLoading(true);
-    
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(
-            `http://localhost:8000/search/tracks?query=${encodeURIComponent(genreName)}&limit=100`,
-            { headers: { 'Authorization': `Bearer ${token}` } }
-        );
-        if (response.ok) setTracks(await response.json());
-    } catch (error) {
-        console.error('Failed to fetch genre tracks:', error);
-    } finally {
-        setLoading(false);
-    }
-};
-
-const handleBack = () => {
-    setViewMode('browse');
-    setSelectedAlbum(null);
-    setSelectedPlaylist(null);
-    setSelectedGenre(null);
-    
-    // Re-fetch browse data
-    if (selectedCategory === 'albums') {
-        fetchBrowseAlbums();
-    } else if (selectedCategory === 'playlists') {
-        fetchBrowsePlaylists();
-    }
-};
-
-    // Handle suggestion click - fill search box and search (or fetch album tracks)
     const handleSuggestionClick = (type: 'track' | 'album' | 'artist', text: string, id?: number) => {
         setShowSuggestions(false);
         
         if (type === 'album' && id) {
-            // For albums, fetch all tracks from that album
-            fetchTracksByAlbum(id, text);
+            handleAlbumClick(id);
         } else {
-            // For tracks and artists, search normally
             setQuery(text);
-            // Trigger search with the suggestion text
             setTimeout(() => {
                 fetchResults(text);
             }, 100);
         }
     };
 
-    // Close suggestions when clicking outside
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (
@@ -533,22 +522,37 @@ const handleBack = () => {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    const getCoverUrl = (id: number) => {
-        return `http://localhost:8000/music/cover/${id}`;
-    };
-
-    const formatDuration = (seconds: number) => {
+    const formatTime = (seconds: number) => {
+        if (isNaN(seconds)) return '0:00';
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     };
 
-    const handlePlayTrack = async (track: Track) => {
-        // Use current tracks as queue
-        playTrack(track as any, tracks as any);
+    const getCoverUrl = (trackId: number) => {
+        return `http://localhost:8000/music/cover/${trackId}`;
     };
 
-    const showResults = viewMode === 'search' && query.trim().length > 0;
+    const getAlbumCoverUrl = (album: Album) => {
+        // Priority 1: Use first_track_id from backend (NEW!)
+        if (album.first_track_id) {
+            return `http://localhost:8000/music/cover/${album.first_track_id}`;
+        }
+        // Priority 2: If album has tracks in frontend, use first track's cover
+        if (album.tracks && album.tracks.length > 0) {
+            return `http://localhost:8000/music/cover/${album.tracks[0].id}`;
+        }
+        // Priority 3: Try album cover path (usually null)
+        if (album.cover_path) {
+            if (album.cover_path.startsWith('http')) {
+                return album.cover_path;
+            }
+            return `http://localhost:8000${album.cover_path}`;
+        }
+        return null;
+    };
+
+    const showResults = viewMode === 'search' && query.trim().length > 0 && hasSearched;
     const showBrowse = viewMode === 'browse' || viewMode.includes('-detail');
 
     return (
@@ -564,18 +568,13 @@ const handleBack = () => {
                     background: #3e3e3e;
                     border-radius: 4px;
                 }
-                .suggestions-scroll::-webkit-scrollbar-thumb:hover {
-                    background: #4e4e4e;
-                }
             `}</style>
             
-            {/* Main Content */}
             <main className="max-w-[1800px] mx-auto px-6 pt-8">
                 {/* Search Header */}
                 <div className="mb-8">
                     <h1 className="text-4xl font-bold text-white mb-6">Search</h1>
                     
-                    {/* Search Input */}
                     <form onSubmit={handleSearch} className="relative">
                         <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none z-10" />
                         <input
@@ -585,16 +584,19 @@ const handleBack = () => {
                             value={query}
                             onChange={(e) => {
                                 setQuery(e.target.value);
-                                // Clear results if query is empty
+                                // Switch to search mode when typing starts
+                                if (e.target.value.trim().length > 0 && viewMode !== 'search') {
+                                    setViewMode('search');
+                                }
                                 if (e.target.value.trim() === '') {
                                     setTracks([]);
                                     setAlbums([]);
                                     setShowSuggestions(false);
+                                    setHasSearched(false);
                                 }
                             }}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
-                                    // Prevent any default autocomplete behavior
                                     e.preventDefault();
                                     setShowSuggestions(false);
                                     if (query.trim()) {
@@ -603,9 +605,7 @@ const handleBack = () => {
                                 }
                             }}
                             onFocus={(e) => {
-                                // Select all text when clicking input (enterprise standard)
                                 e.target.select();
-                                
                                 if (suggestions && query.length >= 2 && !showResults) {
                                     setShowSuggestions(true);
                                 }
@@ -620,7 +620,6 @@ const handleBack = () => {
                                 ref={suggestionsRef}
                                 className="suggestions-scroll absolute top-full mt-2 w-full bg-[#282828] rounded-lg shadow-xl overflow-hidden z-20 max-h-[60vh] overflow-y-auto"
                             >
-                                {/* Tracks */}
                                 {suggestions.tracks.length > 0 && (
                                     <div className="p-2">
                                         <p className="text-xs text-gray-400 px-3 py-2 font-semibold">TRACKS</p>
@@ -637,7 +636,6 @@ const handleBack = () => {
                                     </div>
                                 )}
 
-                                {/* Artists */}
                                 {suggestions.artists.length > 0 && (
                                     <div className="p-2 border-t border-neutral-700">
                                         <p className="text-xs text-gray-400 px-3 py-2 font-semibold">ARTISTS</p>
@@ -654,7 +652,6 @@ const handleBack = () => {
                                     </div>
                                 )}
 
-                                {/* Albums */}
                                 {suggestions.albums.length > 0 && (
                                     <div className="p-2 border-t border-neutral-700">
                                         <p className="text-xs text-gray-400 px-3 py-2 font-semibold">ALBUMS</p>
@@ -675,14 +672,11 @@ const handleBack = () => {
                     </form>
                 </div>
 
-                {/* Show Results or Browse Categories */}
+                {/* Content: Search Results or Browse */}
                 {showResults ? (
                     <div>
-                        {/* Results Header */}
                         <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-2xl font-bold">
-                                Results for "{query}"
-                            </h2>
+                            <h2 className="text-2xl font-bold">Results for "{query}"</h2>
                             {selectedCategory !== 'all' && (
                                 <button
                                     onClick={() => handleCategoryClick('all')}
@@ -693,7 +687,6 @@ const handleBack = () => {
                             )}
                         </div>
 
-                        {/* Loading State */}
                         {loading && (
                             <div className="flex justify-center py-12">
                                 <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#B93939]"></div>
@@ -706,31 +699,13 @@ const handleBack = () => {
                                 <h3 className="text-xl font-bold mb-4">Tracks</h3>
                                 <div className="space-y-2">
                                     {tracks.map((track) => {
-                                        // Handle different artist data structures
-                                        let artistNames = 'Unknown Artist';
-                                        
-                                        // Try artist_names string field first
-                                        if (track.artist_names && typeof track.artist_names === 'string') {
-                                            artistNames = track.artist_names;
-                                        }
-                                        // Then try artists array
-                                        else if (track.artists && Array.isArray(track.artists)) {
-                                            if (track.artists.length > 0) {
-                                                // Check if artists are objects with name property
-                                                if (typeof track.artists[0] === 'object' && track.artists[0].name) {
-                                                    artistNames = track.artists.map((a: any) => a.name).join(', ');
-                                                } else if (typeof track.artists[0] === 'string') {
-                                                    // Artists might be strings
-                                                    artistNames = track.artists.join(', ');
-                                                }
-                                            }
-                                        }
+                                        const artistNames = track.artists?.map(a => a.name).join(', ') || 'Unknown Artist';
                                         
                                         return (
                                             <button
                                                 key={track.id}
-                                                onClick={() => handlePlayTrack(track)}
-                                                className="w-full flex items-center gap-4 p-3 rounded-lg hover:bg-[#1e1e1e] transition group text-left"
+                                                onClick={() => playTrack(track, tracks)}
+                                                className="w-full flex items-center gap-4 p-3 rounded-lg hover:bg-[#1e1e1e] transition text-left"
                                             >
                                                 <div className="w-12 h-12 bg-neutral-800 rounded flex-shrink-0 overflow-hidden">
                                                     {track.cover_path ? (
@@ -738,11 +713,6 @@ const handleBack = () => {
                                                             src={getCoverUrl(track.id)}
                                                             alt={track.title}
                                                             className="w-full h-full object-cover"
-                                                            onError={(e) => {
-                                                                // If image fails to load, show music icon
-                                                                e.currentTarget.style.display = 'none';
-                                                                e.currentTarget.parentElement!.innerHTML = '<div class="w-full h-full flex items-center justify-center"><svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path></svg></div>';
-                                                            }}
                                                         />
                                                     ) : (
                                                         <div className="w-full h-full flex items-center justify-center">
@@ -752,11 +722,11 @@ const handleBack = () => {
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <p className="font-medium truncate">{track.title}</p>
-                                                    <p className="text-sm text-gray-400 truncate">
-                                                        {artistNames}
-                                                    </p>
+                                                    <p className="text-sm text-gray-400 truncate">{artistNames}</p>
                                                 </div>
-                                                <span className="text-sm text-gray-400">{formatDuration(track.duration)}</span>
+                                                <span className="text-sm text-gray-400 flex-shrink-0">
+                                                    {formatTime(track.duration)}
+                                                </span>
                                             </button>
                                         );
                                     })}
@@ -766,19 +736,19 @@ const handleBack = () => {
 
                         {/* Albums Results */}
                         {!loading && (selectedCategory === 'all' || selectedCategory === 'albums') && albums.length > 0 && (
-                            <div>
+                            <div className="mb-8">
                                 <h3 className="text-xl font-bold mb-4">Albums</h3>
                                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                                     {albums.map((album) => (
                                         <div
                                             key={album.id}
-                                            onClick={() => navigate(`/album/${album.id}`)}
-                                            className="bg-[#181818] p-4 rounded-lg hover:bg-[#282828] transition cursor-pointer group"
+                                            onClick={() => handleAlbumClick(album.id)}
+                                            className="bg-[#181818] p-4 rounded-lg hover:bg-[#282828] transition cursor-pointer"
                                         >
-                                            <div className="aspect-square bg-neutral-800 rounded-lg mb-4 overflow-hidden">
-                                                {album.cover_path ? (
+                                            <div className="aspect-square bg-neutral-800 rounded mb-4 overflow-hidden">
+                                                {getAlbumCoverUrl(album) ? (
                                                     <img
-                                                        src={`http://localhost:8000${album.cover_path}`}
+                                                        src={getAlbumCoverUrl(album)!}
                                                         alt={album.name}
                                                         className="w-full h-full object-cover"
                                                     />
@@ -790,7 +760,7 @@ const handleBack = () => {
                                             </div>
                                             <h4 className="font-semibold truncate mb-1">{album.name}</h4>
                                             <p className="text-sm text-gray-400 truncate">
-                                                {album.release_year || ''} • {album.artists.join(', ')}
+                                                {album.artists?.join(', ') || 'Unknown Artist'}
                                             </p>
                                         </div>
                                     ))}
@@ -798,18 +768,198 @@ const handleBack = () => {
                             </div>
                         )}
 
-                        {/* No Results */}
                         {!loading && tracks.length === 0 && albums.length === 0 && (
                             <div className="text-center py-12">
                                 <p className="text-gray-400">No results found for "{query}"</p>
                             </div>
                         )}
                     </div>
+                ) : showBrowse ? (
+                    <div>
+                        {/* Back Button */}
+                        {viewMode.includes('-detail') && (
+                            <button
+                                onClick={handleBack}
+                                className="flex items-center gap-2 text-gray-400 hover:text-white mb-6 transition"
+                            >
+                                <ArrowLeft className="w-5 h-5" />
+                                Back
+                            </button>
+                        )}
+
+                        {/* Category Pills */}
+                        {viewMode === 'browse' && (
+                            <div className="flex flex-wrap gap-3 mb-8">
+                                {browseCategories.map((cat) => {
+                                    const Icon = cat.icon;
+                                    return (
+                                        <button
+                                            key={cat.id}
+                                            onClick={() => handleCategoryClick(cat.id)}
+                                            className={`flex items-center gap-2 px-6 py-3 rounded-full transition ${
+                                                selectedCategory === cat.id
+                                                    ? 'bg-[#B93939] text-white'
+                                                    : 'bg-[#2a2a2a] text-gray-300 hover:bg-[#3a3a3a]'
+                                            }`}
+                                        >
+                                            <Icon className="w-5 h-5" />
+                                            <span className="font-medium">{cat.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {/* Browse Content */}
+                        {viewMode === 'browse' && selectedCategory !== 'all' && (
+                            <BrowseViews
+                                category={selectedCategory}
+                                tracks={tracks}
+                                albums={albums}
+                                artists={artists}
+                                playlists={playlists}
+                                genres={genres}
+                                playHistory={playHistory}
+                                loading={loading}
+                                songsHasMore={songsHasMore}
+                                songSort={songSort}
+                                showSortDropdown={showSortDropdown}
+                                setShowSortDropdown={setShowSortDropdown}
+                                onSongSortChange={(sort) => {
+                                    setSongSort(sort);
+                                    fetchBrowseSongs(0, sort);
+                                }}
+                                onLoadMoreSongs={() => fetchBrowseSongs(songsSkip + 100, songSort)}
+                                onAlbumClick={handleAlbumClick}
+                                onArtistClick={handleArtistClick}
+                                onPlaylistClick={handlePlaylistClick}
+                                onGenreClick={handleGenreClick}
+                                genreColors={genreColors}
+                            />
+                        )}
+
+                        {/* Album Detail */}
+                        {viewMode === 'album-detail' && selectedAlbum && (
+                            <AlbumDetailView album={selectedAlbum} />
+                        )}
+
+                        {/* Playlist Detail */}
+                        {viewMode === 'playlist-detail' && selectedPlaylist && (
+                            <PlaylistDetailView playlist={selectedPlaylist} />
+                        )}
+
+                        {/* Artist Detail (Show their tracks) */}
+                        {viewMode === 'artist-detail' && (
+                            <div>
+                                <h2 className="text-2xl font-bold mb-6">Tracks by {query}</h2>
+                                {loading ? (
+                                    <div className="flex justify-center py-12">
+                                        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#B93939]"></div>
+                                    </div>
+                                ) : tracks.length > 0 ? (
+                                    <div className="space-y-2">
+                                        {tracks.map((track) => {
+                                            const isCurrentTrack = currentTrack?.id === track.id;
+                                            const artistNames = track.artists?.map(a => a.name).join(', ') || 'Unknown Artist';
+                                            
+                                            return (
+                                                <button
+                                                    key={track.id}
+                                                    onClick={() => playTrack(track, tracks)}
+                                                    className={`w-full flex items-center gap-4 p-3 rounded-lg hover:bg-[#1e1e1e] transition text-left ${
+                                                        isCurrentTrack ? 'bg-[#B93939]/20' : ''
+                                                    }`}
+                                                >
+                                                    <div className="w-12 h-12 bg-neutral-800 rounded flex-shrink-0 overflow-hidden">
+                                                        {track.cover_path ? (
+                                                            <img
+                                                                src={getCoverUrl(track.id)}
+                                                                alt={track.title}
+                                                                className="w-full h-full object-cover"
+                                                            />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center">
+                                                                <Music className="w-6 h-6 text-gray-400" />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className={`font-medium truncate ${isCurrentTrack ? 'text-[#B93939]' : ''}`}>
+                                                            {track.title}
+                                                        </p>
+                                                        <p className="text-sm text-gray-400 truncate">{artistNames}</p>
+                                                    </div>
+                                                    <span className="text-sm text-gray-400 flex-shrink-0">
+                                                        {formatTime(track.duration)}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <p className="text-center text-gray-400 py-12">No tracks found</p>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Genre Detail (Show tracks in genre) */}
+                        {viewMode === 'genre-detail' && selectedGenre && (
+                            <div>
+                                <h2 className="text-2xl font-bold mb-6">{selectedGenre} Tracks</h2>
+                                {loading ? (
+                                    <div className="flex justify-center py-12">
+                                        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#B93939]"></div>
+                                    </div>
+                                ) : tracks.length > 0 ? (
+                                    <div className="space-y-2">
+                                        {tracks.map((track) => {
+                                            const isCurrentTrack = currentTrack?.id === track.id;
+                                            const artistNames = track.artists?.map(a => a.name).join(', ') || 'Unknown Artist';
+                                            
+                                            return (
+                                                <button
+                                                    key={track.id}
+                                                    onClick={() => playTrack(track, tracks)}
+                                                    className={`w-full flex items-center gap-4 p-3 rounded-lg hover:bg-[#1e1e1e] transition text-left ${
+                                                        isCurrentTrack ? 'bg-[#B93939]/20' : ''
+                                                    }`}
+                                                >
+                                                    <div className="w-12 h-12 bg-neutral-800 rounded flex-shrink-0 overflow-hidden">
+                                                        {track.cover_path ? (
+                                                            <img
+                                                                src={getCoverUrl(track.id)}
+                                                                alt={track.title}
+                                                                className="w-full h-full object-cover"
+                                                            />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center">
+                                                                <Music className="w-6 h-6 text-gray-400" />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className={`font-medium truncate ${isCurrentTrack ? 'text-[#B93939]' : ''}`}>
+                                                            {track.title}
+                                                        </p>
+                                                        <p className="text-sm text-gray-400 truncate">{artistNames}</p>
+                                                    </div>
+                                                    <span className="text-sm text-gray-400 flex-shrink-0">
+                                                        {formatTime(track.duration)}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <p className="text-center text-gray-400 py-12">No tracks found for this genre</p>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 ) : (
-                    /* Browse Categories */
+                    /* Initial Browse Screen */
                     <div>
                         <h2 className="text-2xl font-bold text-white mb-4">Browse All</h2>
-                        
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                             {browseCategories.map((category) => {
                                 const Icon = category.icon;
@@ -817,9 +967,9 @@ const handleBack = () => {
                                     <button
                                         key={category.id}
                                         onClick={() => handleCategoryClick(category.id as BrowseCategory)}
-                                        className="bg-gradient-to-br from-[#B93939] to-[#8a2a2a] rounded-lg p-4 h-32 flex flex-col justify-between hover:scale-105 transition text-left group"
+                                        className="bg-gradient-to-br from-[#B93939] to-[#8a2a2a] rounded-lg p-4 h-32 flex flex-col justify-between hover:scale-105 transition text-left"
                                     >
-                                        <Icon className="w-8 h-8 text-white/80 group-hover:text-white transition" />
+                                        <Icon className="w-8 h-8 text-white/80" />
                                         <h3 className="text-xl font-bold text-white">{category.label}</h3>
                                     </button>
                                 );

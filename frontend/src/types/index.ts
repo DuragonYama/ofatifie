@@ -29,6 +29,7 @@ export interface RegisterRequest {
 export interface Artist {
   id?: number;
   name: string;
+  track_count?: number;  // For browse/search results
 }
 
 // Album type
@@ -36,9 +37,13 @@ export interface Album {
   id: number;
   name: string;
   release_year?: number;
+  genre?: string;
   cover_path?: string;
-  tracks?: Track[];  // Add this
-  artist_name?: string;
+  total_tracks?: number;
+  artists?: string[];
+  tracks?: Track[];
+  first_track_id?: number;  // ← NEW: For cover images from backend
+  created_at?: string;
 }
 
 // Track type
@@ -58,8 +63,8 @@ export interface Track {
   year?: number;
   genre?: string;
   album_id?: number;
-  artists?: Artist[];  // Add this
-  album?: Album;  // Add this
+  artists?: Artist[];
+  album?: Album;
 }
 
 // Playlist types
@@ -93,7 +98,7 @@ export interface Playlist {
   is_collaborative: boolean;
   owner_id: number;
   created_at: string;
-  tracks?: PlaylistTrack[];  // Add this
+  tracks?: PlaylistTrack[];
 }
 
 // Liked song type

@@ -335,6 +335,7 @@ def get_track(
 def list_tracks(
     skip: int = 0,
     limit: int = 50,
+    order_by: str = "created_at DESC",  # ← NEW: Sorting parameter
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -343,15 +344,23 @@ def list_tracks(
     
     - Paginated results
     - Returns up to 50 tracks per request
+    - ✅ NEW: Supports sorting via order_by parameter
+      Examples: "title ASC", "play_count DESC", "duration DESC", "created_at DESC"
     """
     from sqlalchemy.orm import selectinload
+    from sqlalchemy import text  # ← NEW: For dynamic ordering
     
     tracks = db.query(Track).options(
         selectinload(Track.artists),  # ✅ Load artists
         selectinload(Track.album)     # ✅ Load album
-    ).filter(Track.deleted_at == None).offset(skip).limit(limit).all()
+    ).filter(
+        Track.deleted_at == None
+    ).order_by(
+        text(order_by)  # ← NEW: Apply sorting
+    ).offset(skip).limit(limit).all()
     
     return tracks
+
 
 @router.post("/download/spotify", status_code=status.HTTP_202_ACCEPTED)
 async def download_from_spotify(

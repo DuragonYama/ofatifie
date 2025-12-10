@@ -28,6 +28,7 @@ def list_albums(
     - Paginated results
     - Optional search by album name
     - Includes artist names
+    - ✅ NEW: Includes first_track_id for cover images
     """
     query = db.query(Album).filter(Album.deleted_at.is_(None))
     
@@ -37,7 +38,7 @@ def list_albums(
     
     albums = query.order_by(Album.name).offset(skip).limit(limit).all()
     
-    # Add artist names
+    # Add artist names and first track ID for cover
     result = []
     for album in albums:
         # Get artists for this album
@@ -47,15 +48,25 @@ def list_albums(
             AlbumArtist.album_id == album.id
         ).order_by(AlbumArtist.artist_order).all()
         
-        result.append(AlbumWithArtists(
-            id=album.id,
-            name=album.name,
-            release_year=album.release_year,
-            genre=album.genre,
-            cover_path=album.cover_path,
-            total_tracks=album.total_tracks,
-            artists=[artist.name for artist in artists]
-        ))
+        # ✅ NEW: Get first track ID for cover image
+        first_track = db.query(Track).filter(
+            Track.album_id == album.id,
+            Track.deleted_at.is_(None)
+        ).order_by(Track.track_number).first()
+        
+        # Build dict with all fields including first_track_id
+        album_dict = {
+            "id": album.id,
+            "name": album.name,
+            "release_year": album.release_year,
+            "genre": album.genre,
+            "cover_path": album.cover_path,
+            "total_tracks": album.total_tracks,
+            "artists": [artist.name for artist in artists],
+            "first_track_id": first_track.id if first_track else None
+        }
+        
+        result.append(AlbumWithArtists(**album_dict))
     
     return result
 
@@ -124,6 +135,7 @@ def search_albums(
     
     - Case-insensitive search
     - Returns up to 20 results
+    - ✅ NEW: Includes first_track_id for cover images
     """
     albums = db.query(Album).filter(
         Album.name.ilike(f"%{query}%"),
@@ -138,14 +150,24 @@ def search_albums(
             AlbumArtist.album_id == album.id
         ).all()
         
-        result.append(AlbumWithArtists(
-            id=album.id,
-            name=album.name,
-            release_year=album.release_year,
-            genre=album.genre,
-            cover_path=album.cover_path,
-            total_tracks=album.total_tracks,
-            artists=[artist.name for artist in artists]
-        ))
+        # ✅ NEW: Get first track ID for cover image
+        first_track = db.query(Track).filter(
+            Track.album_id == album.id,
+            Track.deleted_at.is_(None)
+        ).order_by(Track.track_number).first()
+        
+        # Build dict with all fields including first_track_id
+        album_dict = {
+            "id": album.id,
+            "name": album.name,
+            "release_year": album.release_year,
+            "genre": album.genre,
+            "cover_path": album.cover_path,
+            "total_tracks": album.total_tracks,
+            "artists": [artist.name for artist in artists],
+            "first_track_id": first_track.id if first_track else None
+        }
+        
+        result.append(AlbumWithArtists(**album_dict))
     
     return result

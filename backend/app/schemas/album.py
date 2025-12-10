@@ -13,6 +13,7 @@ class AlbumBase(BaseModel):
     genre: Optional[str] = None
     cover_path: Optional[str] = None
     total_tracks: Optional[int] = None
+    first_track_id: Optional[int] = None  # ← ADD THIS LINE for album covers
     
     model_config = ConfigDict(from_attributes=True)
 
