@@ -20,6 +20,8 @@ interface PlayerContextType {
   setVolume: (volume: number) => void;
   toggleShuffle: () => void;
   toggleRepeat: () => void;
+  addToQueue: (track: Track) => void;
+  playNextInQueue: (track: Track) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -35,8 +37,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const playNextRef = useRef<() => void>(() => {});
+  const playNextRef = useRef<(() => void)>(() => {});
   const repeatModeRef = useRef<RepeatMode>('off');
+
+  // ✅ NEW: Playback tracking state
+  const [playHistoryId, setPlayHistoryId] = useState<number | null>(null);
+  const heartbeatIntervalRef = useRef<number | null>(null);
+  const hasMarkedCompletedRef = useRef<boolean>(false);
 
   /**
    * AUDIO LOAD DELAY CONFIGURATION
@@ -66,6 +73,95 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     repeatModeRef.current = repeatMode;
   }, [repeatMode]);
+
+  // ✅ NEW: Playback tracking - Start tracking
+  const startPlaybackTracking = async (trackId: number) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch('http://localhost:8000/playback/start', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ track_id: trackId })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setPlayHistoryId(data.play_history_id);
+        hasMarkedCompletedRef.current = false; // Reset completion flag
+        startHeartbeat(); // Start sending progress updates
+      }
+    } catch (error) {
+      console.error('Failed to start playback tracking:', error);
+    }
+  };
+
+  // ✅ NEW: Playback tracking - Update progress
+  const updatePlaybackTracking = async (completed: boolean = false) => {
+    if (!playHistoryId || !audioRef.current) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      await fetch('http://localhost:8000/playback/update', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          play_history_id: playHistoryId,
+          duration_played: Math.floor(audioRef.current.currentTime),
+          completed: completed
+        })
+      });
+    } catch (error) {
+      console.error('Failed to update playback tracking:', error);
+    }
+  };
+
+  // ✅ NEW: Playback tracking - Heartbeat (every 15 seconds)
+  const startHeartbeat = () => {
+    // Clear any existing heartbeat
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+    }
+
+    // Send update every 15 seconds
+    heartbeatIntervalRef.current = setInterval(() => {
+      if (audioRef.current && duration > 0) {
+        const progress = currentTime / duration;
+        
+        // Mark as completed if 80%+ played (only once)
+        if (progress >= 0.8 && !hasMarkedCompletedRef.current) {
+          hasMarkedCompletedRef.current = true;
+          updatePlaybackTracking(true); // This increments play_count!
+        } else {
+          updatePlaybackTracking(false);
+        }
+      }
+    }, 15000); // 15 seconds
+  };
+
+  // ✅ NEW: Playback tracking - Stop heartbeat
+  const stopHeartbeat = () => {
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+  };
+
+  // ✅ NEW: Clean up heartbeat on unmount
+  useEffect(() => {
+    return () => {
+      stopHeartbeat();
+    };
+  }, []);
 
   // Initialize audio element ONCE
   useEffect(() => {
@@ -116,6 +212,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const playTrack = (track: Track, newQueue?: Track[]) => {
     if (!audioRef.current) return;
+
+    // ✅ NEW: Stop any existing heartbeat
+    stopHeartbeat();
 
     // If new queue provided, update queue
     if (newQueue) {
@@ -189,6 +288,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           setIsPlaying(false);
         });
         setIsPlaying(true);
+        
+        // ✅ NEW: Start playback tracking
+        startPlaybackTracking(track.id);
       };
       
       playWithDelay();
@@ -204,12 +306,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
+      stopHeartbeat(); // ✅ NEW: Stop tracking when paused
     } else {
       audioRef.current.play().catch(err => {
         console.error('Error playing:', err);
         setIsPlaying(false);
       });
       setIsPlaying(true);
+      startHeartbeat(); // ✅ NEW: Resume tracking when playing
     }
   };
 
@@ -297,6 +401,32 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // ✅ NEW: Add track to end of queue
+  const addToQueue = (track: Track) => {
+    setQueue(prevQueue => [...prevQueue, track]);
+  };
+
+  // ✅ NEW: Add track to play next (after current track)
+  const playNextInQueue = (track: Track) => {
+    if (!currentTrack) {
+      // No track playing, just play this one
+      playTrack(track, [track]);
+      return;
+    }
+    
+    const currentIndex = queue.findIndex(t => t.id === currentTrack.id);
+    
+    if (currentIndex === -1) {
+      // Current track not in queue, add it first
+      setQueue([currentTrack, track, ...queue]);
+    } else {
+      // Insert after current track
+      const newQueue = [...queue];
+      newQueue.splice(currentIndex + 1, 0, track);
+      setQueue(newQueue);
+    }
+  };
+
   return (
     <PlayerContext.Provider
       value={{
@@ -316,6 +446,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         setVolume: handleSetVolume,
         toggleShuffle,
         toggleRepeat,
+        addToQueue,
+        playNextInQueue,
       }}
     >
       {children}

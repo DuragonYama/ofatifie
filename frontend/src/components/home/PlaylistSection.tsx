@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Music, ArrowLeft, Play, Pause, Plus } from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
 import { getPlaylist } from '../../lib/music-api';
+import TrackContextMenu from '../TrackContextMenu';
 import type { PlaylistListItem, Playlist, Track } from '../../types';
 
 interface PlaylistSectionProps {
@@ -9,8 +10,30 @@ interface PlaylistSectionProps {
 }
 
 export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
-  const { playTrack, currentTrack, isPlaying, togglePlay } = usePlayer();
+  const { playTrack, currentTrack, isPlaying, togglePlay, addToQueue, playNextInQueue } = usePlayer();
   const [playlistView, setPlaylistView] = useState<{ type: 'list' | 'detail'; data?: Playlist }>({ type: 'list' });
+  const [likedSongIds, setLikedSongIds] = useState<Set<number>>(new Set());
+
+  // Fetch liked songs on mount
+  useEffect(() => {
+    const fetchLikedSongs = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('http://localhost:8000/library/liked-songs?skip=0&limit=1000', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setLikedSongIds(new Set(data.map((t: Track) => t.id)));
+        }
+      } catch (error) {
+        console.error('Failed to fetch liked songs:', error);
+      }
+    };
+    fetchLikedSongs();
+  }, []);
 
   const handlePlaylistClick = async (playlistId: number) => {
     try {
@@ -23,6 +46,75 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
 
   const getCoverUrl = (trackId: number) => {
     return `http://localhost:8000/music/cover/${trackId}`;
+  };
+
+  const handleToggleLike = async (trackId: number) => {
+    const isLiked = likedSongIds.has(trackId);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:8000/library/like/${trackId}`, {
+        method: isLiked ? 'DELETE' : 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        setLikedSongIds(prev => {
+          const newSet = new Set(prev);
+          if (isLiked) {
+            newSet.delete(trackId);
+          } else {
+            newSet.add(trackId);
+          }
+          return newSet;
+        });
+        window.dispatchEvent(new CustomEvent('liked-songs-updated'));
+      }
+    } catch (error) {
+      console.error('Failed to toggle like:', error);
+    }
+  };
+
+  const handleAddToPlaylist = async (trackId: number, playlistId: number) => {
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`http://localhost:8000/playlists/${playlistId}/songs`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ track_id: trackId })
+      });
+    } catch (error) {
+      console.error('Failed to add to playlist:', error);
+    }
+  };
+
+  const handleRemoveFromPlaylist = async (trackId: number) => {
+    if (!playlistView.data) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`http://localhost:8000/playlists/${playlistView.data.id}/songs/${trackId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      // Update local state
+      setPlaylistView(prev => ({
+        ...prev,
+        data: prev.data ? {
+          ...prev.data,
+          tracks: prev.data.tracks?.filter(t => t.track_id !== trackId)
+        } : undefined
+      }));
+    } catch (error) {
+      console.error('Failed to remove from playlist:', error);
+    }
   };
 
   if (playlistView.type === 'list') {
@@ -155,10 +247,11 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
             {playlistView.data.tracks && playlistView.data.tracks.length > 0 ? (
               <div className="space-y-1">
                 {/* Header */}
-                <div className="grid grid-cols-[40px_1fr_80px] gap-4 px-4 py-2 text-sm text-gray-400 border-b border-neutral-800">
+                <div className="grid grid-cols-[40px_1fr_80px_40px] gap-4 px-4 py-2 text-sm text-gray-400 border-b border-neutral-800">
                   <div className="text-center">#</div>
                   <div>Title</div>
                   <div className="text-right">Duration</div>
+                  <div></div>
                 </div>
 
                 {/* Tracks */}
@@ -175,41 +268,57 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
                   return (
                     <div
                       key={track.track_id}
-                      onClick={() => {
-                        if (playlistView.data?.tracks) {
-                          const allTracks: Track[] = playlistView.data.tracks.map(pt => ({
-                            id: pt.track_id,
-                            title: pt.title,
-                            duration: pt.duration,
-                            artists: pt.artists.map((name: string) => ({ name })),
-                            cover_path: pt.cover_path,
-                          }));
-                          playTrack(fullTrack, allTracks);
-                        }
-                      }}
-className={`grid grid-cols-[40px_1fr_80px] gap-4 px-4 py-3 rounded hover:bg-neutral-800 cursor-pointer transition group ${
-  isTrackPlaying ? 'bg-[#B93939]/20' : ''
-}`}
+                      className={`group grid grid-cols-[40px_1fr_80px_40px] gap-4 px-4 py-3 rounded hover:bg-neutral-800 cursor-pointer transition ${
+                        isTrackPlaying ? 'bg-[#B93939]/20' : ''
+                      }`}
                     >
-{/* Track Number / Animation */}
-<div className={`text-center flex items-center justify-center ${
-  isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400 group-hover:text-white'
-}`}>
-  {isTrackPlaying && isPlaying ? (
-    <div className="flex gap-0.5">
-      <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" />
-      <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" style={{ animationDelay: '0.2s' }} />
-      <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" style={{ animationDelay: '0.4s' }} />
-    </div>
-  ) : (
-    <>
-      <span className="group-hover:hidden">{index + 1}</span>
-      <Play className="w-4 h-4 hidden group-hover:block" fill="currentColor" />
-    </>
-  )}
-</div>
+                      {/* Track Number / Animation */}
+                      <div
+                        onClick={() => {
+                          if (playlistView.data?.tracks) {
+                            const allTracks: Track[] = playlistView.data.tracks.map(pt => ({
+                              id: pt.track_id,
+                              title: pt.title,
+                              duration: pt.duration,
+                              artists: pt.artists.map((name: string) => ({ name })),
+                              cover_path: pt.cover_path,
+                            }));
+                            playTrack(fullTrack, allTracks);
+                          }
+                        }}
+                        className={`text-center flex items-center justify-center ${
+                          isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400 group-hover:text-white'
+                        }`}
+                      >
+                        {isTrackPlaying && isPlaying ? (
+                          <div className="flex gap-0.5">
+                            <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" />
+                            <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" style={{ animationDelay: '0.2s' }} />
+                            <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" style={{ animationDelay: '0.4s' }} />
+                          </div>
+                        ) : (
+                          <>
+                            <span className="group-hover:hidden">{index + 1}</span>
+                            <Play className="w-4 h-4 hidden group-hover:block" fill="currentColor" />
+                          </>
+                        )}
+                      </div>
 
-                      <div className="min-w-0">
+                      <div
+                        onClick={() => {
+                          if (playlistView.data?.tracks) {
+                            const allTracks: Track[] = playlistView.data.tracks.map(pt => ({
+                              id: pt.track_id,
+                              title: pt.title,
+                              duration: pt.duration,
+                              artists: pt.artists.map((name: string) => ({ name })),
+                              cover_path: pt.cover_path,
+                            }));
+                            playTrack(fullTrack, allTracks);
+                          }
+                        }}
+                        className="min-w-0"
+                      >
                         <p className={`truncate transition ${isTrackPlaying ? 'text-[#B93939] font-semibold' : 'text-white group-hover:text-[#B93939]'
                           }`}>
                           {track.title}
@@ -221,8 +330,36 @@ className={`grid grid-cols-[40px_1fr_80px] gap-4 px-4 py-3 rounded hover:bg-neut
                         )}
                       </div>
 
-                      <div className={`text-right ${isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400'}`}>
+                      <div
+                        onClick={() => {
+                          if (playlistView.data?.tracks) {
+                            const allTracks: Track[] = playlistView.data.tracks.map(pt => ({
+                              id: pt.track_id,
+                              title: pt.title,
+                              duration: pt.duration,
+                              artists: pt.artists.map((name: string) => ({ name })),
+                              cover_path: pt.cover_path,
+                            }));
+                            playTrack(fullTrack, allTracks);
+                          }
+                        }}
+                        className={`text-right ${isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400'}`}
+                      >
                         {track.duration ? Math.floor(track.duration / 60) + ':' + String(track.duration % 60).padStart(2, '0') : '-'}
+                      </div>
+
+                      {/* 3-Dot Menu */}
+                      <div className="flex items-center justify-center">
+                        <TrackContextMenu
+                          track={fullTrack}
+                          context="playlist"
+                          isLiked={likedSongIds.has(track.track_id)}
+                          onAddToQueue={() => addToQueue(fullTrack)}
+                          onPlayNext={() => playNextInQueue(fullTrack)}
+                          onToggleLike={() => handleToggleLike(track.track_id)}
+                          onAddToPlaylist={(playlistId) => handleAddToPlaylist(track.track_id, playlistId)}
+                          onRemoveFromPlaylist={() => handleRemoveFromPlaylist(track.track_id)}
+                        />
                       </div>
                     </div>
                   );

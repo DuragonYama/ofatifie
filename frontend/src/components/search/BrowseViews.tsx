@@ -20,7 +20,7 @@ interface PlayHistory {
     track?: Track;
 }
 
-type SongSort = 'recent' | 'title' | 'plays' | 'duration';
+type SongSort = 'recent' | 'title' | 'duration';
 type BrowseCategory = 'songs' | 'albums' | 'artists' | 'playlists' | 'genres' | 'recent';
 
 interface BrowseViewsProps {
@@ -132,7 +132,6 @@ export default function BrowseViews({
                             <span className="text-sm">
                                 {songSort === 'recent' && 'Recently Added'}
                                 {songSort === 'title' && 'Title (A-Z)'}
-                                {songSort === 'plays' && 'Most Played'}
                                 {songSort === 'duration' && 'Duration'}
                             </span>
                             <ChevronDown className="w-4 h-4" />
@@ -143,7 +142,6 @@ export default function BrowseViews({
                                 {[
                                     { id: 'recent' as SongSort, label: 'Recently Added' },
                                     { id: 'title' as SongSort, label: 'Title (A-Z)' },
-                                    { id: 'plays' as SongSort, label: 'Most Played' },
                                     { id: 'duration' as SongSort, label: 'Duration' },
                                 ].map((sortOption) => (
                                     <button

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Heart, ArrowLeft, Play, Pause } from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
+import TrackContextMenu from '../TrackContextMenu';
 import type { LibraryStats, Track } from '../../types';
 
 interface LikedSongsSectionProps {
@@ -12,13 +13,12 @@ interface LikedSongsSectionProps {
 export default function LikedSongsSection({ stats, albumCount, playlistCount }: LikedSongsSectionProps) {
   const [likedView, setLikedView] = useState<{ type: 'card' | 'detail'; tracks?: Track[] }>({ type: 'card' });
   const [loading, setLoading] = useState(false);
-  const { currentTrack, isPlaying, playTrack, togglePlay } = usePlayer();
+  const { currentTrack, isPlaying, playTrack, togglePlay, addToQueue, playNextInQueue } = usePlayer();
 
   const handleLikedClick = async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      console.log('Fetching liked songs with token:', token ? 'present' : 'missing');
       
       // Fetch with pagination - load 500 songs at once
       const response = await fetch('http://localhost:8000/library/liked-songs?skip=0&limit=500', {
@@ -27,18 +27,10 @@ export default function LikedSongsSection({ stats, albumCount, playlistCount }: 
         }
       });
       
-      console.log('Response status:', response.status);
-      
       if (response.ok) {
         const data = await response.json();
-        console.log('Liked songs data:', data);
-        console.log('Number of tracks:', data.length || 0);
-        
         setLikedView({ type: 'detail', tracks: data || [] });
       } else {
-        console.error('Failed to fetch liked songs:', response.status);
-        const errorText = await response.text();
-        console.error('Error response:', errorText);
         setLikedView({ type: 'detail', tracks: [] });
       }
     } catch (error) {
@@ -75,6 +67,45 @@ export default function LikedSongsSection({ stats, albumCount, playlistCount }: 
     playTrack(track, likedView.tracks);
   };
 
+  const handleToggleLike = async (trackId: number) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:8000/library/like/${trackId}`, {
+        method: 'DELETE', // Always DELETE since we're in liked songs
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        // Remove from local list
+        setLikedView(prev => ({
+          ...prev,
+          tracks: prev.tracks?.filter(t => t.id !== trackId) || []
+        }));
+        window.dispatchEvent(new CustomEvent('liked-songs-updated'));
+      }
+    } catch (error) {
+      console.error('Failed to toggle like:', error);
+    }
+  };
+
+  const handleAddToPlaylist = async (trackId: number, playlistId: number) => {
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`http://localhost:8000/playlists/${playlistId}/songs`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ track_id: trackId })
+      });
+    } catch (error) {
+      console.error('Failed to add to playlist:', error);
+    }
+  };
+
   // Check if any liked song is playing
   const likedTrackIds = likedView.tracks?.map(t => t.id) || [];
   const isLikedPlaying = currentTrack && likedTrackIds.includes(currentTrack.id);
@@ -83,7 +114,6 @@ export default function LikedSongsSection({ stats, albumCount, playlistCount }: 
   useEffect(() => {
     if (likedView.type === 'detail') {
       const handleLikedUpdate = () => {
-        console.log('Liked songs updated, refreshing list...');
         handleLikedClick();
       };
       
@@ -166,12 +196,14 @@ export default function LikedSongsSection({ stats, albumCount, playlistCount }: 
                 return (
                   <div
                     key={track.id}
-                    onClick={() => handleTrackClick(track)}
-                    className={`p-2 hover:bg-neutral-800 rounded cursor-pointer transition group flex items-center gap-3 ${
+                    className={`group p-2 hover:bg-neutral-800 rounded cursor-pointer transition flex items-center gap-3 ${
                       isCurrentTrack ? 'bg-[#B93939]/20' : ''
                     }`}
                   >
-                    <div className="flex-shrink-0 w-8 flex items-center justify-center">
+                    <div
+                      onClick={() => handleTrackClick(track)}
+                      className="flex-shrink-0 w-8 flex items-center justify-center"
+                    >
                       {isCurrentTrack && isPlaying ? (
                         <div className="flex gap-0.5">
                           <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" />
@@ -184,7 +216,10 @@ export default function LikedSongsSection({ stats, albumCount, playlistCount }: 
                         }`} fill="currentColor" />
                       )}
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div
+                      onClick={() => handleTrackClick(track)}
+                      className="flex-1 min-w-0"
+                    >
                       <p className={`text-sm truncate ${
                         isCurrentTrack ? 'text-[#B93939] font-semibold' : 'text-gray-300'
                       }`}>
@@ -196,11 +231,25 @@ export default function LikedSongsSection({ stats, albumCount, playlistCount }: 
                         {track.artists?.map(a => a.name).join(', ') || 'Unknown Artist'}
                       </p>
                     </div>
-                    <span className={`text-xs flex-shrink-0 ${
-                      isCurrentTrack ? 'text-[#B93939]' : 'text-gray-500'
-                    }`}>
+                    <span
+                      onClick={() => handleTrackClick(track)}
+                      className={`text-xs flex-shrink-0 ${
+                        isCurrentTrack ? 'text-[#B93939]' : 'text-gray-500'
+                      }`}
+                    >
                       {formatDuration(track.duration)}
                     </span>
+                    
+                    {/* 3-Dot Menu */}
+                    <TrackContextMenu
+                      track={track}
+                      context="liked"
+                      isLiked={true} // Always liked in this view
+                      onAddToQueue={() => addToQueue(track)}
+                      onPlayNext={() => playNextInQueue(track)}
+                      onToggleLike={() => handleToggleLike(track.id)}
+                      onAddToPlaylist={(playlistId) => handleAddToPlaylist(track.id, playlistId)}
+                    />
                   </div>
                 );
               })}

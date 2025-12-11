@@ -2,15 +2,38 @@ import { useState } from 'react';
 import { Album as AlbumIcon, ArrowLeft, Play, Pause } from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
 import { getAlbum } from '../../lib/music-api';
-import type { LibraryItem, Album } from '../../types';
+import TrackContextMenu from '../TrackContextMenu';
+import type { LibraryItem, Album, Track } from '../../types';
 
 interface AlbumSectionProps {
   albums: LibraryItem[];
 }
 
 export default function AlbumSection({ albums }: AlbumSectionProps) {
-  const { playTrack, currentTrack, isPlaying, togglePlay } = usePlayer();
+  const { playTrack, currentTrack, isPlaying, togglePlay, addToQueue, playNextInQueue } = usePlayer();
   const [albumView, setAlbumView] = useState<{ type: 'list' | 'detail'; data?: Album }>({ type: 'list' });
+  const [likedSongIds, setLikedSongIds] = useState<Set<number>>(new Set());
+
+  // Fetch liked songs on mount
+  useState(() => {
+    const fetchLikedSongs = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('http://localhost:8000/library/liked-songs?skip=0&limit=1000', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setLikedSongIds(new Set(data.map((t: Track) => t.id)));
+        }
+      } catch (error) {
+        console.error('Failed to fetch liked songs:', error);
+      }
+    };
+    fetchLikedSongs();
+  });
 
   const handleAlbumClick = async (albumId: number) => {
     try {
@@ -23,6 +46,50 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
 
   const getCoverUrl = (trackId: number) => {
     return `http://localhost:8000/music/cover/${trackId}`;
+  };
+
+  const handleToggleLike = async (trackId: number) => {
+    const isLiked = likedSongIds.has(trackId);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:8000/library/like/${trackId}`, {
+        method: isLiked ? 'DELETE' : 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        setLikedSongIds(prev => {
+          const newSet = new Set(prev);
+          if (isLiked) {
+            newSet.delete(trackId);
+          } else {
+            newSet.add(trackId);
+          }
+          return newSet;
+        });
+        window.dispatchEvent(new CustomEvent('liked-songs-updated'));
+      }
+    } catch (error) {
+      console.error('Failed to toggle like:', error);
+    }
+  };
+
+  const handleAddToPlaylist = async (trackId: number, playlistId: number) => {
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`http://localhost:8000/playlists/${playlistId}/songs`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ track_id: trackId })
+      });
+    } catch (error) {
+      console.error('Failed to add to playlist:', error);
+    }
   };
 
   if (albumView.type === 'list') {
@@ -159,10 +226,11 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
             {albumView.data.tracks && albumView.data.tracks.length > 0 ? (
               <div className="space-y-1">
                 {/* Header */}
-                <div className="grid grid-cols-[40px_1fr_80px] gap-4 px-4 py-2 text-sm text-gray-400 border-b border-neutral-800">
+                <div className="grid grid-cols-[40px_1fr_80px_40px] gap-4 px-4 py-2 text-sm text-gray-400 border-b border-neutral-800">
                   <div className="text-center">#</div>
                   <div>Title</div>
                   <div className="text-right">Duration</div>
+                  <div></div>
                 </div>
 
                 {/* Tracks */}
@@ -172,31 +240,38 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
                     ? track.artists
                     : (albumView.data?.artists || []).map((name: string) => ({ name }));
 
+                  const fullTrack: Track = {
+                    ...track,
+                    artists: trackArtists
+                  };
+
                   return (
                     <div
                       key={track.id}
-                      onClick={() => {
-                        if (albumView.data?.tracks) {
-                          const tracksWithArtists = albumView.data.tracks.map(t => ({
-                            ...t,
-                            artists: t.artists && t.artists.length > 0
-                              ? t.artists
-                              : (albumView.data?.artists || []).map((name: string) => ({ name }))
-                          }));
-                          playTrack(
-                            { ...track, artists: trackArtists },
-                            tracksWithArtists
-                          );
-                        }
-                      }}
-                      className={`grid grid-cols-[40px_1fr_80px] gap-4 px-4 py-3 rounded hover:bg-neutral-800 cursor-pointer transition group ${
+                      className={`group grid grid-cols-[40px_1fr_80px_40px] gap-4 px-4 py-3 rounded hover:bg-neutral-800 cursor-pointer transition ${
                         isTrackPlaying ? 'bg-[#B93939]/20' : ''
                       }`}
                     >
                       {/* Track Number / Animation */}
-                      <div className={`text-center flex items-center justify-center ${
-                        isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400 group-hover:text-white'
-                      }`}>
+                      <div
+                        onClick={() => {
+                          if (albumView.data?.tracks) {
+                            const tracksWithArtists = albumView.data.tracks.map(t => ({
+                              ...t,
+                              artists: t.artists && t.artists.length > 0
+                                ? t.artists
+                                : (albumView.data?.artists || []).map((name: string) => ({ name }))
+                            }));
+                            playTrack(
+                              { ...track, artists: trackArtists },
+                              tracksWithArtists
+                            );
+                          }
+                        }}
+                        className={`text-center flex items-center justify-center ${
+                          isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400 group-hover:text-white'
+                        }`}
+                      >
                         {isTrackPlaying && isPlaying ? (
                           <div className="flex gap-0.5">
                             <div className="w-0.5 h-3 bg-[#B93939] animate-pulse" />
@@ -211,7 +286,23 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
                         )}
                       </div>
 
-                      <div className="min-w-0">
+                      <div
+                        onClick={() => {
+                          if (albumView.data?.tracks) {
+                            const tracksWithArtists = albumView.data.tracks.map(t => ({
+                              ...t,
+                              artists: t.artists && t.artists.length > 0
+                                ? t.artists
+                                : (albumView.data?.artists || []).map((name: string) => ({ name }))
+                            }));
+                            playTrack(
+                              { ...track, artists: trackArtists },
+                              tracksWithArtists
+                            );
+                          }
+                        }}
+                        className="min-w-0"
+                      >
                         <p className={`truncate transition ${
                           isTrackPlaying ? 'text-[#B93939] font-semibold' : 'text-white group-hover:text-[#B93939]'
                         }`}>
@@ -226,10 +317,39 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
                         )}
                       </div>
 
-                      <div className={`text-right ${
-                        isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400'
-                      }`}>
+                      <div
+                        onClick={() => {
+                          if (albumView.data?.tracks) {
+                            const tracksWithArtists = albumView.data.tracks.map(t => ({
+                              ...t,
+                              artists: t.artists && t.artists.length > 0
+                                ? t.artists
+                                : (albumView.data?.artists || []).map((name: string) => ({ name }))
+                            }));
+                            playTrack(
+                              { ...track, artists: trackArtists },
+                              tracksWithArtists
+                            );
+                          }
+                        }}
+                        className={`text-right ${
+                          isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400'
+                        }`}
+                      >
                         {track.duration ? Math.floor(track.duration / 60) + ':' + String(track.duration % 60).padStart(2, '0') : '-'}
+                      </div>
+
+                      {/* 3-Dot Menu */}
+                      <div className="flex items-center justify-center">
+                        <TrackContextMenu
+                          track={fullTrack}
+                          context="album"
+                          isLiked={likedSongIds.has(track.id)}
+                          onAddToQueue={() => addToQueue(fullTrack)}
+                          onPlayNext={() => playNextInQueue(fullTrack)}
+                          onToggleLike={() => handleToggleLike(track.id)}
+                          onAddToPlaylist={(playlistId) => handleAddToPlaylist(track.id, playlistId)}
+                        />
                       </div>
                     </div>
                   );

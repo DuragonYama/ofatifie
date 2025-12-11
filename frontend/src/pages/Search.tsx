@@ -30,7 +30,7 @@ interface PlayHistory {
 }
 
 type ViewMode = 'search' | 'browse' | 'album-detail' | 'playlist-detail' | 'artist-detail' | 'genre-detail';
-type SongSort = 'recent' | 'title' | 'plays' | 'duration';
+type SongSort = 'recent' | 'title' | 'duration';
 type BrowseCategory = 'all' | 'songs' | 'albums' | 'artists' | 'playlists' | 'genres' | 'recent';
 
 export default function Search() {
@@ -224,16 +224,13 @@ export default function Search() {
                 case 'title':
                     orderBy = 'title ASC';
                     break;
-                case 'plays':
-                    orderBy = 'play_count DESC';
-                    break;
                 case 'duration':
                     orderBy = 'duration DESC';
                     break;
             }
             
             const response = await fetch(
-                `http://localhost:8000/music/tracks?skip=${skip}&limit=100&order_by=${orderBy}`,
+                `http://localhost:8000/music/tracks?skip=${skip}&limit=100&order_by=${encodeURIComponent(orderBy)}`,
                 { headers: { 'Authorization': `Bearer ${token}` } }
             );
             

@@ -108,16 +108,33 @@ export default function MusicPlayer() {
         };
     }, [isExpanded, isLyricsFullscreen]);
 
-    // Check liked status - DELAYED to prioritize audio playback
+    // Handle browser back button for expanded player
+    useEffect(() => {
+        const handlePopState = () => {
+            if (isExpanded) {
+                // If player is expanded, close it instead of navigating
+                setIsExpanded(false);
+            }
+        };
+
+        if (isExpanded) {
+            // Push a history state when player expands
+            window.history.pushState({ musicPlayerExpanded: true }, '');
+            window.addEventListener('popstate', handlePopState);
+        }
+
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+        };
+    }, [isExpanded]);
+
+    // Check liked status
     useEffect(() => {
         const checkLikedStatus = async () => {
             if (!currentTrack) {
                 setIsLiked(false);
                 return;
             }
-            
-            // Wait 1 second before checking - let audio start first!
-            await new Promise(resolve => setTimeout(resolve, 1000));
             
             try {
                 const token = localStorage.getItem('token');
@@ -141,7 +158,7 @@ export default function MusicPlayer() {
         checkLikedStatus();
     }, [currentTrack?.id]);
 
-    // Fetch lyrics when track changes - DELAYED to prioritize audio playback
+    // Fetch lyrics when track changes
     useEffect(() => {
         const fetchLyrics = async () => {
             if (!currentTrack) {
@@ -150,9 +167,6 @@ export default function MusicPlayer() {
                 setIsLyricsVisible(false);
                 return;
             }
-
-            // Wait 1 second before fetching - let audio start first!
-            await new Promise(resolve => setTimeout(resolve, 1000));
 
             setLyricsLoading(true);
             try {
@@ -255,6 +269,16 @@ export default function MusicPlayer() {
 
     // Don't render if no track is loaded
     if (!currentTrack) return null;
+
+
+    const handleClosePlayer = () => {
+        setIsExpanded(false);
+        
+        // If we pushed a history state when expanding, go back to remove it
+        if (window.history.state?.musicPlayerExpanded) {
+            window.history.back();
+        }
+    };
 
     const formatTime = (seconds: number) => {
         if (isNaN(seconds)) return '0:00';
@@ -494,7 +518,7 @@ export default function MusicPlayer() {
                     {/* Header */}
                     <div className="flex items-center justify-between p-4 flex-shrink-0">
                         <button
-                            onClick={() => setIsExpanded(false)}
+                            onClick={handleClosePlayer}
                             className="text-white p-2"
                         >
                             <ChevronUp className="w-8 h-8 rotate-180" />
