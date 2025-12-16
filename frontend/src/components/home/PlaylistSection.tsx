@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Music, ArrowLeft, Play, Pause, Plus } from 'lucide-react';
+import { useState } from 'react';
+import { Music, ArrowLeft, Play, Pause, Plus, MoreVertical, Edit, Image, Trash2, X } from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
 import { getPlaylist } from '../../lib/music-api';
 import TrackContextMenu from '../TrackContextMenu';
@@ -7,15 +7,35 @@ import type { PlaylistListItem, Playlist, Track } from '../../types';
 
 interface PlaylistSectionProps {
   playlists: PlaylistListItem[];
+  onPlaylistsUpdate?: () => void;
 }
 
-export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
+export default function PlaylistSection({ playlists, onPlaylistsUpdate }: PlaylistSectionProps) {
   const { playTrack, currentTrack, isPlaying, togglePlay, addToQueue, playNextInQueue } = usePlayer();
   const [playlistView, setPlaylistView] = useState<{ type: 'list' | 'detail'; data?: Playlist }>({ type: 'list' });
+  
+  // Create playlist modal
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newPlaylistName, setNewPlaylistName] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  
+  // 3-dot menu states
+  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const [showDetailMenu, setShowDetailMenu] = useState(false);
+  
+  // Edit modals
+  const [showEditNameModal, setShowEditNameModal] = useState(false);
+  const [showEditCoverModal, setShowEditCoverModal] = useState(false);
+  const [editingPlaylist, setEditingPlaylist] = useState<PlaylistListItem | Playlist | null>(null);
+  const [editName, setEditName] = useState('');
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  // Liked songs state
   const [likedSongIds, setLikedSongIds] = useState<Set<number>>(new Set());
 
   // Fetch liked songs on mount
-  useEffect(() => {
+  useState(() => {
     const fetchLikedSongs = async () => {
       try {
         const token = localStorage.getItem('token');
@@ -33,7 +53,7 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
       }
     };
     fetchLikedSongs();
-  }, []);
+  });
 
   const handlePlaylistClick = async (playlistId: number) => {
     try {
@@ -46,6 +66,18 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
 
   const getCoverUrl = (trackId: number) => {
     return `http://localhost:8000/music/cover/${trackId}`;
+  };
+
+  const getPlaylistCoverUrl = (playlist: Playlist) => {
+    // Check if playlist has a custom cover
+    if (playlist.cover_path) {
+      return `http://localhost:8000${playlist.cover_path}`;
+    }
+    // Otherwise use first track's cover
+    if (playlist.tracks && playlist.tracks.length > 0) {
+      return getCoverUrl(playlist.tracks[0].track_id);
+    }
+    return null;
   };
 
   const handleToggleLike = async (trackId: number) => {
@@ -92,28 +124,177 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
     }
   };
 
-  const handleRemoveFromPlaylist = async (trackId: number) => {
-    if (!playlistView.data) return;
-    
+  const handleCreatePlaylist = async () => {
+    if (!newPlaylistName.trim()) return;
+
+    setIsCreating(true);
     try {
       const token = localStorage.getItem('token');
-      await fetch(`http://localhost:8000/playlists/${playlistView.data.id}/songs/${trackId}`, {
+      const response = await fetch('http://localhost:8000/playlists', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: newPlaylistName,
+          description: ''
+        })
+      });
+
+      if (response.ok) {
+        setShowCreateModal(false);
+        setNewPlaylistName('');
+        // Refresh playlists
+        if (onPlaylistsUpdate) {
+          onPlaylistsUpdate();
+        }
+      } else {
+        const error = await response.json();
+        alert(error.detail || 'Failed to create playlist');
+      }
+    } catch (error) {
+      console.error('Failed to create playlist:', error);
+      alert('Network error. Please try again.');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleDeletePlaylist = async (playlistId: number) => {
+    if (!confirm('Are you sure you want to remove this playlist?')) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:8000/playlists/${playlistId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
-      
-      // Update local state
-      setPlaylistView(prev => ({
-        ...prev,
-        data: prev.data ? {
-          ...prev.data,
-          tracks: prev.data.tracks?.filter(t => t.track_id !== trackId)
-        } : undefined
-      }));
+
+      if (response.ok) {
+        setOpenMenuId(null);
+        setShowDetailMenu(false);
+        // If we're in detail view of deleted playlist, go back to list
+        if (playlistView.type === 'detail' && playlistView.data?.id === playlistId) {
+          setPlaylistView({ type: 'list' });
+        }
+        // Refresh playlists
+        if (onPlaylistsUpdate) {
+          onPlaylistsUpdate();
+        }
+      } else {
+        const error = await response.json();
+        alert(error.detail || 'Failed to delete playlist');
+      }
     } catch (error) {
-      console.error('Failed to remove from playlist:', error);
+      console.error('Failed to delete playlist:', error);
+      alert('Network error. Please try again.');
+    }
+  };
+
+  const openEditNameModal = (playlist: PlaylistListItem | Playlist) => {
+    setEditingPlaylist(playlist);
+    setEditName(playlist.name);
+    setShowEditNameModal(true);
+    setOpenMenuId(null);
+    setShowDetailMenu(false);
+  };
+
+  const openEditCoverModal = (playlist: PlaylistListItem | Playlist) => {
+    setEditingPlaylist(playlist);
+    setShowEditCoverModal(true);
+    setOpenMenuId(null);
+    setShowDetailMenu(false);
+  };
+
+  const handleUpdateName = async () => {
+    if (!editingPlaylist || !editName.trim()) return;
+
+    setIsUpdating(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:8000/playlists/${editingPlaylist.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: editName,
+          description: editingPlaylist.description || ''
+        })
+      });
+
+      if (response.ok) {
+        setShowEditNameModal(false);
+        setEditName('');
+        
+        // If we're in detail view, update the data
+        if (playlistView.type === 'detail' && playlistView.data?.id === editingPlaylist.id) {
+          const updatedPlaylist = await getPlaylist(editingPlaylist.id);
+          setPlaylistView({ type: 'detail', data: updatedPlaylist });
+        }
+        
+        setEditingPlaylist(null);
+        // Refresh playlists
+        if (onPlaylistsUpdate) {
+          onPlaylistsUpdate();
+        }
+      } else {
+        const error = await response.json();
+        alert(error.detail || 'Failed to update playlist name');
+      }
+    } catch (error) {
+      console.error('Failed to update playlist name:', error);
+      alert('Network error. Please try again.');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleUpdateCover = async () => {
+    if (!editingPlaylist || !coverFile) return;
+
+    setIsUpdating(true);
+    try {
+      const token = localStorage.getItem('token');
+      const formData = new FormData();
+      formData.append('file', coverFile);
+
+      const response = await fetch(`http://localhost:8000/playlists/${editingPlaylist.id}/cover`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (response.ok) {
+        setShowEditCoverModal(false);
+        setCoverFile(null);
+        
+        // If we're in detail view, refresh the playlist data
+        if (playlistView.type === 'detail' && playlistView.data?.id === editingPlaylist.id) {
+          const updatedPlaylist = await getPlaylist(editingPlaylist.id);
+          setPlaylistView({ type: 'detail', data: updatedPlaylist });
+        }
+        
+        setEditingPlaylist(null);
+        // Refresh playlists
+        if (onPlaylistsUpdate) {
+          onPlaylistsUpdate();
+        }
+      } else {
+        const error = await response.json();
+        alert(error.detail || 'Failed to update playlist cover');
+      }
+    } catch (error) {
+      console.error('Failed to update playlist cover:', error);
+      alert('Network error. Please try again.');
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -123,7 +304,7 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-2xl font-bold text-white">Playlists</h3>
           <button
-            onClick={() => {/* TODO: Open create playlist modal */ }}
+            onClick={() => setShowCreateModal(true)}
             className="flex items-center gap-2 px-3 py-1.5 bg-neutral-900 hover:bg-[#B93939] text-white rounded-full transition text-sm"
           >
             <Plus className="w-4 h-4" />
@@ -158,6 +339,139 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
             <p className="text-sm text-gray-400">No playlists yet</p>
           </div>
         )}
+
+        {/* Create Playlist Modal */}
+        {showCreateModal && (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+            <div className="bg-[#282828] rounded-xl p-6 max-w-md w-full">
+              <h3 className="text-xl font-bold mb-4">Create Playlist</h3>
+              <p className="text-gray-400 text-sm mb-4">
+                Enter a name for your new playlist
+              </p>
+              <input
+                type="text"
+                value={newPlaylistName}
+                onChange={(e) => setNewPlaylistName(e.target.value)}
+                placeholder="My Playlist"
+                className="w-full bg-[#3e3e3e] text-white rounded-lg px-4 py-3 mb-4 focus:outline-none focus:ring-2 focus:ring-[#B93939]"
+                onKeyDown={(e) => e.key === 'Enter' && handleCreatePlaylist()}
+                autoFocus
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    setNewPlaylistName('');
+                  }}
+                  className="flex-1 bg-neutral-700 hover:bg-neutral-600 text-white rounded-full py-3 transition"
+                  disabled={isCreating}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreatePlaylist}
+                  disabled={!newPlaylistName.trim() || isCreating}
+                  className="flex-1 bg-[#B93939] hover:bg-[#a33232] text-white rounded-full py-3 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isCreating ? 'Creating...' : 'Create'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Name Modal */}
+        {showEditNameModal && editingPlaylist && (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+            <div className="bg-[#282828] rounded-xl p-6 max-w-md w-full">
+              <h3 className="text-xl font-bold mb-4">Edit Playlist Name</h3>
+              <p className="text-gray-400 text-sm mb-4">
+                Enter a new name for "{editingPlaylist.name}"
+              </p>
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Playlist name"
+                className="w-full bg-[#3e3e3e] text-white rounded-lg px-4 py-3 mb-4 focus:outline-none focus:ring-2 focus:ring-[#B93939]"
+                onKeyDown={(e) => e.key === 'Enter' && handleUpdateName()}
+                autoFocus
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowEditNameModal(false);
+                    setEditName('');
+                    setEditingPlaylist(null);
+                  }}
+                  className="flex-1 bg-neutral-700 hover:bg-neutral-600 text-white rounded-full py-3 transition"
+                  disabled={isUpdating}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateName}
+                  disabled={!editName.trim() || isUpdating}
+                  className="flex-1 bg-[#B93939] hover:bg-[#a33232] text-white rounded-full py-3 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isUpdating ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Cover Modal */}
+        {showEditCoverModal && editingPlaylist && (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+            <div className="bg-[#282828] rounded-xl p-6 max-w-md w-full">
+              <h3 className="text-xl font-bold mb-4">Edit Playlist Cover</h3>
+              <p className="text-gray-400 text-sm mb-4">
+                Upload a new cover image for "{editingPlaylist.name}"
+              </p>
+              
+              {/* File Upload Area */}
+              <label className="block w-full bg-[#3e3e3e] hover:bg-[#4a4a4a] rounded-lg p-8 cursor-pointer transition mb-4 border-2 border-dashed border-neutral-600 hover:border-[#B93939]">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setCoverFile(e.target.files?.[0] || null)}
+                  className="hidden"
+                />
+                <div className="flex flex-col items-center text-center">
+                  <Image className="w-12 h-12 text-gray-400 mb-3" />
+                  <p className="text-white font-medium mb-1">
+                    {coverFile ? coverFile.name : 'Click to upload image'}
+                  </p>
+                  <p className="text-sm text-gray-400">
+                    JPG, PNG (recommended: 300x300px)
+                  </p>
+                </div>
+              </label>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowEditCoverModal(false);
+                    setCoverFile(null);
+                    setEditingPlaylist(null);
+                  }}
+                  className="flex-1 bg-neutral-700 hover:bg-neutral-600 text-white rounded-full py-3 transition"
+                  disabled={isUpdating}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateCover}
+                  disabled={!coverFile || isUpdating}
+                  className="flex-1 bg-[#B93939] hover:bg-[#a33232] text-white rounded-full py-3 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isUpdating ? 'Uploading...' : 'Upload'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </>
     );
   }
@@ -176,12 +490,61 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
       {playlistView.data && (
         <div className="bg-gradient-to-b from-neutral-800 to-[#121212] rounded-lg max-h-[600px] overflow-y-auto custom-scrollbar">
           {/* Header Section */}
-          <div className="p-8 flex flex-col md:flex-row items-center md:items-end gap-6">
+          <div className="p-8 flex flex-col md:flex-row items-center md:items-end gap-6 relative">
+            {/* 3-Dot Menu in Detail View - Mobile: Absolute Top-Right */}
+            <div className="absolute top-4 right-4 md:relative md:top-auto md:right-auto md:order-3 flex-shrink-0">
+              <button
+                onClick={() => setShowDetailMenu(!showDetailMenu)}
+                className="p-2 text-gray-400 hover:text-white transition"
+              >
+                <MoreVertical className="w-6 h-6" />
+              </button>
+
+              {showDetailMenu && (
+                <>
+                  {/* Backdrop */}
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowDetailMenu(false)}
+                  />
+                  
+                  {/* Menu */}
+                  <div className="absolute right-0 top-full mt-1 w-56 bg-[#282828] rounded-lg shadow-xl overflow-hidden z-50">
+                    <button
+                      onClick={() => openEditNameModal(playlistView.data!)}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#3e3e3e] transition text-left text-white"
+                    >
+                      <Edit className="w-4 h-4" />
+                      <span>Edit playlist name</span>
+                    </button>
+
+                    <button
+                      onClick={() => openEditCoverModal(playlistView.data!)}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#3e3e3e] transition text-left text-white"
+                    >
+                      <Image className="w-4 h-4" />
+                      <span>Edit cover art</span>
+                    </button>
+
+                    <div className="border-t border-neutral-700" />
+
+                    <button
+                      onClick={() => handleDeletePlaylist(playlistView.data!.id)}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#3e3e3e] transition text-left text-red-500"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Remove playlist</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
             {/* Playlist Cover */}
-            <div className="w-48 h-48 bg-neutral-800 rounded shadow-2xl flex-shrink-0">
-              {playlistView.data.tracks && playlistView.data.tracks.length > 0 ? (
+            <div className="w-48 h-48 bg-neutral-800 rounded shadow-2xl flex-shrink-0 overflow-hidden md:order-1">
+              {getPlaylistCoverUrl(playlistView.data) ? (
                 <img
-                  src={getCoverUrl(playlistView.data.tracks[0].track_id)}
+                  src={getPlaylistCoverUrl(playlistView.data)!}
                   alt={playlistView.data.name}
                   className="w-full h-full object-cover rounded"
                 />
@@ -193,12 +556,12 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
             </div>
 
             {/* Playlist Info */}
-            <div className="flex-1 min-w-0 text-center md:text-left">
+            <div className="flex-1 min-w-0 text-center md:text-left md:order-2">
               <p className="text-sm font-semibold text-white mb-2">Playlist</p>
-              <h1 className="text-2xl md:text-5xl font-bold text-white mb-4 md:mb-6 break-words line-clamp-2 md:line-clamp-1">
+              <h1 className="text-2xl md:text-5xl font-bold text-white mb-4 md:mb-6 break-words line-clamp-2">
                 {playlistView.data.name}
               </h1>
-              <div className="flex items-center gap-2 text-sm text-gray-300">
+              <div className="flex items-center justify-center md:justify-start gap-2 text-sm text-gray-300">
                 {playlistView.data.tracks && playlistView.data.tracks.length > 0 && (
                   <span>{playlistView.data.tracks.length} songs</span>
                 )}
@@ -319,12 +682,15 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
                         }}
                         className="min-w-0"
                       >
-                        <p className={`truncate transition ${isTrackPlaying ? 'text-[#B93939] font-semibold' : 'text-white group-hover:text-[#B93939]'
-                          }`}>
+                        <p className={`truncate transition ${
+                          isTrackPlaying ? 'text-[#B93939] font-semibold' : 'text-white group-hover:text-[#B93939]'
+                        }`}>
                           {track.title}
                         </p>
                         {track.artists && track.artists.length > 0 && (
-                          <p className={`text-sm truncate ${isTrackPlaying ? 'text-[#B93939]/80' : 'text-gray-400'}`}>
+                          <p className={`text-sm truncate ${
+                            isTrackPlaying ? 'text-[#B93939]/80' : 'text-gray-400'
+                          }`}>
                             {track.artists.join(', ')}
                           </p>
                         )}
@@ -343,7 +709,9 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
                             playTrack(fullTrack, allTracks);
                           }
                         }}
-                        className={`text-right ${isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400'}`}
+                        className={`text-right ${
+                          isTrackPlaying ? 'text-[#B93939]' : 'text-gray-400'
+                        }`}
                       >
                         {track.duration ? Math.floor(track.duration / 60) + ':' + String(track.duration % 60).padStart(2, '0') : '-'}
                       </div>
@@ -358,7 +726,6 @@ export default function PlaylistSection({ playlists }: PlaylistSectionProps) {
                           onPlayNext={() => playNextInQueue(fullTrack)}
                           onToggleLike={() => handleToggleLike(track.track_id)}
                           onAddToPlaylist={(playlistId) => handleAddToPlaylist(track.track_id, playlistId)}
-                          onRemoveFromPlaylist={() => handleRemoveFromPlaylist(track.track_id)}
                         />
                       </div>
                     </div>

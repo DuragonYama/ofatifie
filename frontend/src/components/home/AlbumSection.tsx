@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Album as AlbumIcon, ArrowLeft, Play, Pause } from 'lucide-react';
+import { Album as AlbumIcon, ArrowLeft, Play, Pause, MoreVertical, Trash2 } from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
 import { getAlbum } from '../../lib/music-api';
 import TrackContextMenu from '../TrackContextMenu';
@@ -7,11 +7,13 @@ import type { LibraryItem, Album, Track } from '../../types';
 
 interface AlbumSectionProps {
   albums: LibraryItem[];
+  onAlbumsUpdate?: () => void;
 }
 
-export default function AlbumSection({ albums }: AlbumSectionProps) {
+export default function AlbumSection({ albums, onAlbumsUpdate }: AlbumSectionProps) {
   const { playTrack, currentTrack, isPlaying, togglePlay, addToQueue, playNextInQueue } = usePlayer();
   const [albumView, setAlbumView] = useState<{ type: 'list' | 'detail'; data?: Album }>({ type: 'list' });
+  const [showDetailMenu, setShowDetailMenu] = useState(false);
   const [likedSongIds, setLikedSongIds] = useState<Set<number>>(new Set());
 
   // Fetch liked songs on mount
@@ -92,6 +94,31 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
     }
   };
 
+  const handleRemoveAlbum = async () => {
+    if (!albumView.data) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:8000/library/albums/${albumView.data.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        setShowDetailMenu(false);
+        setAlbumView({ type: 'list' });
+        // Refresh albums list
+        if (onAlbumsUpdate) {
+          onAlbumsUpdate();
+        }
+      }
+    } catch (error) {
+      console.error('Failed to remove album:', error);
+    }
+  };
+
   if (albumView.type === 'list') {
     return (
       <>
@@ -142,9 +169,40 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
       {albumView.data && (
         <div className="bg-gradient-to-b from-neutral-800 to-[#121212] rounded-lg max-h-[600px] overflow-y-auto custom-scrollbar">
           {/* Header Section */}
-          <div className="p-8 flex flex-col md:flex-row items-center md:items-end gap-6">
+          <div className="p-8 flex flex-col md:flex-row items-center md:items-end gap-6 relative">
+            {/* 3-Dot Menu in Detail View - Mobile: Absolute Top-Right */}
+            <div className="absolute top-4 right-4 md:relative md:top-auto md:right-auto md:order-3 flex-shrink-0">
+              <button
+                onClick={() => setShowDetailMenu(!showDetailMenu)}
+                className="p-2 text-gray-400 hover:text-white transition"
+              >
+                <MoreVertical className="w-6 h-6" />
+              </button>
+
+              {showDetailMenu && (
+                <>
+                  {/* Backdrop */}
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowDetailMenu(false)}
+                  />
+                  
+                  {/* Menu */}
+                  <div className="absolute right-0 top-full mt-1 w-56 bg-[#282828] rounded-lg shadow-xl overflow-hidden z-50">
+                    <button
+                      onClick={handleRemoveAlbum}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#3e3e3e] transition text-left text-red-500"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Remove from Library</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
             {/* Album Cover */}
-            <div className="w-48 h-48 bg-neutral-800 rounded shadow-2xl flex-shrink-0">
+            <div className="w-48 h-48 bg-neutral-800 rounded shadow-2xl flex-shrink-0 overflow-hidden md:order-1">
               {albumView.data.tracks && albumView.data.tracks.length > 0 ? (
                 <img
                   src={getCoverUrl(albumView.data.tracks[0].id)}
@@ -159,12 +217,12 @@ export default function AlbumSection({ albums }: AlbumSectionProps) {
             </div>
 
             {/* Album Info */}
-            <div className="flex-1 min-w-0 text-center md:text-left">
+            <div className="flex-1 min-w-0 text-center md:text-left md:order-2">
               <p className="text-sm font-semibold text-white mb-2">Album</p>
-              <h1 className="text-2xl md:text-5xl font-bold text-white mb-4 md:mb-6 break-words line-clamp-2 md:line-clamp-1">
+              <h1 className="text-2xl md:text-5xl font-bold text-white mb-4 md:mb-6 break-words line-clamp-2">
                 {albumView.data.name}  
               </h1>
-              <div className="flex items-center gap-2 text-sm text-gray-300">
+              <div className="flex items-center justify-center md:justify-start gap-2 text-sm text-gray-300">
                 {albumView.data.artists && albumView.data.artists.length > 0 && (
                   <>
                     <span className="font-semibold text-white">

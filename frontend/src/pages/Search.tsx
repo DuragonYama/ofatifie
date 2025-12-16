@@ -95,64 +95,64 @@ export default function Search() {
         { id: 'recent' as BrowseCategory, label: 'Recently Played', icon: Clock },
     ];
 
-    // Fetch autocomplete suggestions
-    useEffect(() => {
-        // Reset hasSearched when user types (so autocomplete can show again)
-        if (query.length >= 2 && hasSearched) {
-            setHasSearched(false);
-        }
-        
-        // Don't show suggestions in detail views or browse mode
-        if (viewMode === 'browse' || viewMode.includes('-detail')) {
-            setShowSuggestions(false);
-            return;
-        }
-        
-        if (query.length < 2) {
-            setSuggestions(null);
-            setShowSuggestions(false);
-            return;
-        }
+// Fetch autocomplete suggestions
+useEffect(() => {
+    // Don't show suggestions in detail views (but DO show in browse mode when typing)
+    if (viewMode.includes('-detail')) {
+        setShowSuggestions(false);
+        return;
+    }
+    
+    if (query.length < 2) {
+        setSuggestions(null);
+        setShowSuggestions(false);
+        return;
+    }
 
-        const timer = setTimeout(async () => {
-            try {
-                const token = localStorage.getItem('token');
-                const response = await fetch(
-                    `http://localhost:8000/search/suggest?query=${encodeURIComponent(query)}&limit=5`,
-                    { headers: { 'Authorization': `Bearer ${token}` } }
-                );
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    setSuggestions(data);
-                    // Show suggestions when typing (not after explicit search)
-                    if (!hasSearched) {
-                        setShowSuggestions(true);
-                    }
+    const timer = setTimeout(async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(
+                `http://localhost:8000/search/suggest?query=${encodeURIComponent(query)}&limit=5`,
+                { headers: { 'Authorization': `Bearer ${token}` } }
+            );
+            
+            if (response.ok) {
+                const data = await response.json();
+                setSuggestions(data);
+                // Show suggestions when typing (not after explicit search)
+                if (!hasSearched) {
+                    setShowSuggestions(true);
                 }
-            } catch (error) {
-                console.error('Failed to fetch suggestions:', error);
             }
-        }, 300);
+        } catch (error) {
+            console.error('Failed to fetch suggestions:', error);
+        }
+    }, 300);
 
-        return () => clearTimeout(timer);
-    }, [query, viewMode, hasSearched]);
+    return () => clearTimeout(timer);
+}, [query, viewMode, hasSearched]);
 
     // Fetch search results
     const fetchResults = async (searchQuery: string) => {
+        console.log('🔍 FETCH START:', { searchQuery, viewMode, hasSearched, selectedCategory });
+        
         if (!searchQuery) {
             setTracks([]);
             setAlbums([]);
             return;
         }
 
+        console.log('✅ Setting loading and viewMode...');
         setLoading(true);
         setShowSuggestions(false);
-        setHasSearched(true); // Mark that user explicitly searched
+        setHasSearched(true);
         setViewMode('search');
         
         try {
             const token = localStorage.getItem('token');
+            let fetchedTracks: Track[] = [];
+            let fetchedAlbums: Album[] = [];
 
             if (selectedCategory === 'all' || selectedCategory === 'songs') {
                 const tracksResponse = await fetch(
@@ -160,8 +160,11 @@ export default function Search() {
                     { headers: { 'Authorization': `Bearer ${token}` } }
                 );
                 if (tracksResponse.ok) {
-                    setTracks(await tracksResponse.json());
+                    fetchedTracks = await tracksResponse.json();
+                    console.log('📦 Fetched tracks:', fetchedTracks.length);
+                    setTracks(fetchedTracks);
                 } else {
+                    console.log('❌ Tracks request failed:', tracksResponse.status);
                     setTracks([]);
                 }
             }
@@ -172,13 +175,18 @@ export default function Search() {
                     { headers: { 'Authorization': `Bearer ${token}` } }
                 );
                 if (albumsResponse.ok) {
-                    setAlbums(await albumsResponse.json());
+                    fetchedAlbums = await albumsResponse.json();
+                    console.log('📦 Fetched albums:', fetchedAlbums.length);
+                    setAlbums(fetchedAlbums);
                 } else {
+                    console.log('❌ Albums request failed:', albumsResponse.status);
                     setAlbums([]);
                 }
             }
+            
+            console.log('✅ FETCH COMPLETE - Got:', fetchedTracks.length, 'tracks,', fetchedAlbums.length, 'albums');
         } catch (error) {
-            console.error('Failed to fetch results:', error);
+            console.error('❌ Fetch error:', error);
         } finally {
             setLoading(false);
         }
@@ -496,6 +504,7 @@ export default function Search() {
         if (type === 'album' && id) {
             handleAlbumClick(id);
         } else {
+            // For tracks and artists: search for them (don't play them)
             setQuery(text);
             setTimeout(() => {
                 fetchResults(text);
@@ -572,7 +581,7 @@ export default function Search() {
                 <div className="mb-8">
                     <h1 className="text-4xl font-bold text-white mb-6">Search</h1>
                     
-                    <form onSubmit={handleSearch} className="relative">
+                    <form onSubmit={handleSearch} className="relative" action="#">
                         <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none z-10" />
                         <input
                             ref={searchInputRef}
@@ -580,30 +589,37 @@ export default function Search() {
                             placeholder="What do you want to listen to?"
                             value={query}
                             onChange={(e) => {
-                                setQuery(e.target.value);
-                                // Switch to search mode when typing starts
-                                if (e.target.value.trim().length > 0 && viewMode !== 'search') {
-                                    setViewMode('search');
+                                const newValue = e.target.value;
+                                setQuery(newValue);
+                                
+                                // Reset hasSearched when user types (so suggestions can appear)
+                                if (hasSearched) {
+                                    setHasSearched(false);
                                 }
-                                if (e.target.value.trim() === '') {
+                                
+                                if (newValue.trim() === '') {
                                     setTracks([]);
                                     setAlbums([]);
                                     setShowSuggestions(false);
                                     setHasSearched(false);
+                                    setViewMode('browse');
                                 }
                             }}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                     e.preventDefault();
+                                    e.stopPropagation();
                                     setShowSuggestions(false);
                                     if (query.trim()) {
+                                        setViewMode('search');
+                                        setHasSearched(true);
                                         fetchResults(query);
                                     }
                                 }
                             }}
                             onFocus={(e) => {
                                 e.target.select();
-                                if (suggestions && query.length >= 2 && !showResults) {
+                                if (suggestions && query.length >= 2 && !hasSearched) {
                                     setShowSuggestions(true);
                                 }
                             }}
@@ -623,7 +639,7 @@ export default function Search() {
                                         {suggestions.tracks.map((track) => (
                                             <button
                                                 key={track.id}
-                                                onClick={() => handleSuggestionClick('track', track.title)}
+                                                onClick={() => handleSuggestionClick('track', track.title, track.id)}
                                                 className="w-full flex items-center gap-3 px-3 py-2 hover:bg-[#3e3e3e] rounded transition text-left"
                                             >
                                                 <Music className="w-4 h-4 text-gray-400 flex-shrink-0" />

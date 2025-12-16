@@ -25,6 +25,26 @@ export default function Home() {
     }
   };
 
+  // Function to fetch playlists (can be called when playlists are updated)
+  const fetchPlaylists = async () => {
+    try {
+      const playlistsData = await getPlaylists();
+      setPlaylists(playlistsData);
+    } catch (error) {
+      console.error('Failed to fetch playlists:', error);
+    }
+  };
+
+  // Function to fetch albums (can be called when albums are updated)
+  const fetchAlbums = async () => {
+    try {
+      const itemsData = await getLibraryItems(0, 50, 'albums');
+      setAlbums(itemsData.items);
+    } catch (error) {
+      console.error('Failed to fetch albums:', error);
+    }
+  };
+
   // Initial data fetch
   useEffect(() => {
     const fetchData = async () => {
@@ -139,7 +159,10 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12">
           {/* LEFT: Albums */}
           <div className="order-3 lg:order-1">
-            <AlbumSection albums={albums} />
+            <AlbumSection 
+              albums={albums}
+              onAlbumsUpdate={fetchAlbums}
+            />
           </div>
 
           {/* CENTER: Liked Songs */}
@@ -153,7 +176,10 @@ export default function Home() {
 
           {/* RIGHT: Playlists */}
           <div className="order-2 lg:order-3">
-            <PlaylistSection playlists={playlists} />
+            <PlaylistSection 
+              playlists={playlists}
+              onPlaylistsUpdate={fetchPlaylists}
+            />
           </div>
         </div>
       </main>
