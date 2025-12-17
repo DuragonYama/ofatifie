@@ -3,6 +3,7 @@ Main FastAPI application
 ofatifie - Music Streaming App Backend
 """
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.routers import tracks, auth, admin, music, playback, albums, library, search, playlists, tags, lyrics
@@ -24,6 +25,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # Register routers
 app.include_router(tracks.router)

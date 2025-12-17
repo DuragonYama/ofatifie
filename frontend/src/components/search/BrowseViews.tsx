@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { Music, Disc3, User, ListMusic, Clock, ChevronDown } from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
 import { useRef } from 'react';
+import TrackContextMenu from '../TrackContextMenu';
 import type { Track, Album, Artist, Playlist } from '../../types';
 
 // Additional types not in main types file
@@ -66,8 +68,30 @@ export default function BrowseViews({
     onGenreClick,
     genreColors
 }: BrowseViewsProps) {
-    const { playTrack, currentTrack } = usePlayer();
+    const { playTrack, currentTrack, addToQueue, playNextInQueue } = usePlayer();
     const sortDropdownRef = useRef<HTMLDivElement>(null);
+    const [likedSongIds, setLikedSongIds] = useState<Set<number>>(new Set());
+
+    // Fetch liked songs on mount
+    useState(() => {
+        const fetchLikedSongs = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const response = await fetch('http://localhost:8000/library/liked-songs?skip=0&limit=1000', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    setLikedSongIds(new Set(data.map((t: Track) => t.id)));
+                }
+            } catch (error) {
+                console.error('Failed to fetch liked songs:', error);
+            }
+        };
+        fetchLikedSongs();
+    });
 
     const getCoverUrl = (trackId: number) => {
         return `http://localhost:8000/music/cover/${trackId}`;
@@ -97,6 +121,50 @@ export default function BrowseViews({
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    const handleToggleLike = async (trackId: number) => {
+        const isLiked = likedSongIds.has(trackId);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:8000/library/like/${trackId}`, {
+                method: isLiked ? 'DELETE' : 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.ok) {
+                setLikedSongIds(prev => {
+                    const newSet = new Set(prev);
+                    if (isLiked) {
+                        newSet.delete(trackId);
+                    } else {
+                        newSet.add(trackId);
+                    }
+                    return newSet;
+                });
+                window.dispatchEvent(new CustomEvent('liked-songs-updated'));
+            }
+        } catch (error) {
+            console.error('Failed to toggle like:', error);
+        }
+    };
+
+    const handleAddToPlaylist = async (trackId: number, playlistId: number) => {
+        try {
+            const token = localStorage.getItem('token');
+            await fetch(`http://localhost:8000/playlists/${playlistId}/songs`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ track_id: trackId })
+            });
+        } catch (error) {
+            console.error('Failed to add to playlist:', error);
+        }
     };
 
     const getGenreColor = (genre: string): string => {
@@ -169,40 +237,57 @@ export default function BrowseViews({
                             const artistNames = track.artists?.map(a => a.name).join(', ') || 'Unknown Artist';
                             
                             return (
-                                <button
+                                <div
                                     key={track.id}
-                                    onClick={() => playTrack(track, tracks)}
-                                    className={`w-full flex items-center gap-4 p-3 rounded-lg hover:bg-[#1e1e1e] transition group text-left ${
+                                    className={`flex items-center gap-4 p-3 rounded-lg hover:bg-[#1e1e1e] transition group ${
                                         isCurrentTrack ? 'bg-[#B93939]/20' : ''
                                     }`}
                                 >
-                                    <div className="w-12 h-12 bg-neutral-800 rounded flex-shrink-0 overflow-hidden">
-                                        {track.cover_path ? (
-                                            <img
-                                                src={getCoverUrl(track.id)}
-                                                alt={track.title}
-                                                className="w-full h-full object-cover"
-                                            />
-                                        ) : (
-                                            <div className="w-full h-full flex items-center justify-center">
-                                                <Music className="w-6 h-6 text-gray-400" />
-                                            </div>
-                                        )}
+                                    <div
+                                        onClick={() => playTrack(track, tracks)}
+                                        className="flex items-center gap-4 flex-1 min-w-0 cursor-pointer"
+                                    >
+                                        <div className="w-12 h-12 bg-neutral-800 rounded flex-shrink-0 overflow-hidden">
+                                            {track.cover_path ? (
+                                                <img
+                                                    src={getCoverUrl(track.id)}
+                                                    alt={track.title}
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center">
+                                                    <Music className="w-6 h-6 text-gray-400" />
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className={`font-medium truncate ${
+                                                isCurrentTrack ? 'text-[#B93939]' : ''
+                                            }`}>
+                                                {track.title}
+                                            </p>
+                                            <p className="text-sm text-gray-400 truncate">
+                                                {artistNames}
+                                            </p>
+                                        </div>
+                                        <span className="text-sm text-gray-400 flex-shrink-0">
+                                            {formatTime(track.duration)}
+                                        </span>
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className={`font-medium truncate ${
-                                            isCurrentTrack ? 'text-[#B93939]' : ''
-                                        }`}>
-                                            {track.title}
-                                        </p>
-                                        <p className="text-sm text-gray-400 truncate">
-                                            {artistNames}
-                                        </p>
+                                    
+                                    {/* 3-Dot Menu */}
+                                    <div className="flex-shrink-0">
+                                        <TrackContextMenu
+                                            track={track}
+                                            context="browse"
+                                            isLiked={likedSongIds.has(track.id)}
+                                            onAddToQueue={() => addToQueue(track)}
+                                            onPlayNext={() => playNextInQueue(track)}
+                                            onToggleLike={() => handleToggleLike(track.id)}
+                                            onAddToPlaylist={(playlistId) => handleAddToPlaylist(track.id, playlistId)}
+                                        />
                                     </div>
-                                    <span className="text-sm text-gray-400 flex-shrink-0">
-                                        {formatTime(track.duration)}
-                                    </span>
-                                </button>
+                                </div>
                             );
                         })}
                         

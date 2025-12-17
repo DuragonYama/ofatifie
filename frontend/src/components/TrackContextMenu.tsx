@@ -34,32 +34,71 @@ export default function TrackContextMenu({
     const [showPlaylistSubmenu, setShowPlaylistSubmenu] = useState(false);
     const [playlists, setPlaylists] = useState<PlaylistWithStatus[]>([]);
     const [loadingPlaylists, setLoadingPlaylists] = useState(false);
-    const [submenuPosition, setSubmenuPosition] = useState<{ left?: string; right?: string; top: string }>({ top: '0px' });
+    const [submenuPosition, setSubmenuPosition] = useState<{ left?: string; right?: string; top?: string; bottom?: string }>({ top: '0px' });
+    const [openUpward, setOpenUpward] = useState(false);
     
     const menuRef = useRef<HTMLDivElement>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const submenuRef = useRef<HTMLDivElement>(null);
 
-    // Calculate submenu position (left or right of menu)
+    // Detect if main menu should open upward
+    useEffect(() => {
+        if (isOpen && buttonRef.current) {
+            const buttonRect = buttonRef.current.getBoundingClientRect();
+            const menuHeight = 400; // Estimated height of full menu
+            const spaceBelow = window.innerHeight - buttonRect.bottom;
+            
+            // Open upward if not enough space below
+            setOpenUpward(spaceBelow < menuHeight);
+        }
+    }, [isOpen]);
+
+    // Calculate submenu position (left/right AND up/down)
     useEffect(() => {
         if (showPlaylistSubmenu && menuRef.current) {
             const menuRect = menuRef.current.getBoundingClientRect();
             const submenuWidth = 256; // w-64 = 16rem = 256px
+            const submenuHeight = 320; // max-h-80 = 20rem = 320px
             const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
             
-            // Check if submenu would go off-screen on the right
+            // Check horizontal position (left or right of menu)
             const wouldOverflowRight = menuRect.right + submenuWidth + 8 > windowWidth;
             
-            if (wouldOverflowRight) {
-                // Position to the LEFT of menu
-                setSubmenuPosition({
-                    right: `${windowWidth - menuRect.left + 8}px`,
-                    top: `${menuRect.top}px`
-                });
+            // Check vertical position (up or down)
+            const spaceBelow = windowHeight - menuRect.top;
+            const shouldOpenUpward = spaceBelow < submenuHeight;
+            
+            if (shouldOpenUpward) {
+                // Position ABOVE the menu
+                if (wouldOverflowRight) {
+                    // LEFT and UP
+                    setSubmenuPosition({
+                        right: `${windowWidth - menuRect.left + 8}px`,
+                        bottom: `${windowHeight - menuRect.bottom}px`
+                    });
+                } else {
+                    // RIGHT and UP
+                    setSubmenuPosition({
+                        left: `${menuRect.right + 8}px`,
+                        bottom: `${windowHeight - menuRect.bottom}px`
+                    });
+                }
             } else {
-                // Position to the RIGHT of menu
-                setSubmenuPosition({
-                    left: `${menuRect.right + 8}px`,
-                    top: `${menuRect.top}px`
-                });
+                // Position BELOW the menu (original behavior)
+                if (wouldOverflowRight) {
+                    // LEFT and DOWN
+                    setSubmenuPosition({
+                        right: `${windowWidth - menuRect.left + 8}px`,
+                        top: `${menuRect.top}px`
+                    });
+                } else {
+                    // RIGHT and DOWN
+                    setSubmenuPosition({
+                        left: `${menuRect.right + 8}px`,
+                        top: `${menuRect.top}px`
+                    });
+                }
             }
         }
     }, [showPlaylistSubmenu]);
@@ -213,6 +252,7 @@ export default function TrackContextMenu({
             <div className="relative" ref={menuRef}>
                 {/* 3-dot button */}
                 <button
+                    ref={buttonRef}
                     onClick={(e) => {
                         e.stopPropagation();
                         setIsOpen(!isOpen);
@@ -225,7 +265,9 @@ export default function TrackContextMenu({
 
                 {/* Dropdown menu */}
                 {isOpen && (
-                    <div className="absolute right-0 top-full mt-1 w-56 bg-[#282828] rounded-lg shadow-xl overflow-hidden z-50">
+                    <div className={`absolute right-0 w-56 bg-[#282828] rounded-lg shadow-xl overflow-hidden z-[70] ${
+                        openUpward ? 'bottom-full mb-1' : 'top-full mt-1'
+                    }`}>
                         {/* Add to Queue */}
                         <button
                             onClick={(e) => {
@@ -269,7 +311,8 @@ export default function TrackContextMenu({
                             {/* Playlist Submenu with Checkboxes */}
                             {showPlaylistSubmenu && (
                                 <div 
-                                    className="fixed bg-[#282828] rounded-lg shadow-xl max-h-80 overflow-y-auto z-[60] w-64 playlist-submenu-scroll"
+                                    ref={submenuRef}
+                                    className="fixed bg-[#282828] rounded-lg shadow-xl max-h-80 overflow-y-auto z-[80] w-64 playlist-submenu-scroll"
                                     style={submenuPosition}
                                 >
                                     {loadingPlaylists ? (

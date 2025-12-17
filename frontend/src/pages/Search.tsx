@@ -5,6 +5,7 @@ import type { Track, Album, Artist, Playlist } from '../types';
 import AlbumDetailView from '../components/search/AlbumDetailView';
 import PlaylistDetailView from '../components/search/PlaylistDetailView';
 import BrowseViews from '../components/search/BrowseViews';
+import TrackContextMenu from '../components/TrackContextMenu';
 
 // Local types not in main types file
 interface AutocompleteSuggestions {
@@ -34,7 +35,7 @@ type SongSort = 'recent' | 'title' | 'duration';
 type BrowseCategory = 'all' | 'songs' | 'albums' | 'artists' | 'playlists' | 'genres' | 'recent';
 
 export default function Search() {
-    const { playTrack, currentTrack } = usePlayer();
+    const { playTrack, currentTrack, addToQueue, playNextInQueue } = usePlayer();
     
     const [query, setQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<BrowseCategory>('all');
@@ -61,6 +62,9 @@ export default function Search() {
     
     const searchInputRef = useRef<HTMLInputElement>(null);
     const suggestionsRef = useRef<HTMLDivElement>(null);
+
+    // Track UI state: liked songs
+    const [likedSongIds, setLikedSongIds] = useState<Set<number>>(new Set());
 
     const genreColors: Record<string, string> = {
         'pop': 'from-pink-500 to-purple-500',
@@ -528,6 +532,99 @@ useEffect(() => {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
+    // Fetch liked songs on mount so TrackContextMenu knows what's liked
+    useEffect(() => {
+        const fetchLikedSongs = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const res = await fetch(`http://localhost:8000/library/liked-songs`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    // data might be an array of track ids or an array of track objects
+                    const ids = new Set<number>();
+                    if (Array.isArray(data)) {
+                        data.forEach((item: any) => {
+                            if (typeof item === 'number') ids.add(item);
+                            else if (item && typeof item.id === 'number') ids.add(item.id);
+                        });
+                    }
+                    setLikedSongIds(ids);
+                }
+            } catch (error) {
+                console.error('Failed to fetch liked songs:', error);
+            }
+        };
+        fetchLikedSongs();
+    }, []);
+
+    const handleToggleLike = async (trackId: number) => {
+        try {
+            const token = localStorage.getItem('token');
+            const isLiked = likedSongIds.has(trackId);
+            if (isLiked) {
+                // Unlike
+                const res = await fetch(`http://localhost:8000/library/like/${trackId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    setLikedSongIds(prev => {
+                        const copy = new Set(prev);
+                        copy.delete(trackId);
+                        return copy;
+                    });
+                }
+            } else {
+                // Like
+                const res = await fetch(`http://localhost:8000/library/like/${trackId}`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+                });
+                if (res.ok) {
+                    setLikedSongIds(prev => new Set(prev).add(trackId));
+                }
+            }
+        } catch (error) {
+            console.error('Failed to toggle like:', error);
+        }
+    };
+
+    const handleAddToPlaylist = async (trackId: number, playlistId: number) => {
+        try {
+            const token = localStorage.getItem('token');
+            // Try adding first
+            const res = await fetch(`http://localhost:8000/playlists/${playlistId}/tracks`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ track_id: trackId })
+            });
+
+            if (res.ok) {
+                // Added successfully
+                return true;
+            } else if (res.status === 409 || res.status === 400) {
+                // Already exists? Try removing to toggle behavior
+                const del = await fetch(`http://localhost:8000/playlists/${playlistId}/tracks/${trackId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                return del.ok;
+            } else {
+                // unexpected status - attempt delete (toggle)
+                const del = await fetch(`http://localhost:8000/playlists/${playlistId}/tracks/${trackId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                return del.ok;
+            }
+        } catch (error) {
+            console.error('Failed to add/remove track to/from playlist:', error);
+            return false;
+        }
+    };
+
     const formatTime = (seconds: number) => {
         if (isNaN(seconds)) return '0:00';
         const mins = Math.floor(seconds / 60);
@@ -713,34 +810,54 @@ useEffect(() => {
                                 <div className="space-y-2">
                                     {tracks.map((track) => {
                                         const artistNames = track.artists?.map(a => a.name).join(', ') || 'Unknown Artist';
+                                        const isCurrentTrack = currentTrack?.id === track.id;
                                         
                                         return (
-                                            <button
+                                            <div
                                                 key={track.id}
-                                                onClick={() => playTrack(track, tracks)}
-                                                className="w-full flex items-center gap-4 p-3 rounded-lg hover:bg-[#1e1e1e] transition text-left"
+                                                className={`w-full flex items-center gap-4 p-3 rounded-lg hover:bg-[#1e1e1e] transition text-left ${
+                                                    isCurrentTrack ? 'bg-[#B93939]/20' : ''
+                                                }`}
                                             >
-                                                <div className="w-12 h-12 bg-neutral-800 rounded flex-shrink-0 overflow-hidden">
-                                                    {track.cover_path ? (
-                                                        <img
-                                                            src={getCoverUrl(track.id)}
-                                                            alt={track.title}
-                                                            className="w-full h-full object-cover"
-                                                        />
-                                                    ) : (
-                                                        <div className="w-full h-full flex items-center justify-center">
-                                                            <Music className="w-6 h-6 text-gray-400" />
-                                                        </div>
-                                                    )}
+                                                <div
+                                                    onClick={() => playTrack(track, tracks)}
+                                                    className="flex-1 min-w-0 flex items-center gap-4 cursor-pointer"
+                                                >
+                                                    <div className="w-12 h-12 bg-neutral-800 rounded flex-shrink-0 overflow-hidden">
+                                                        {track.cover_path ? (
+                                                            <img
+                                                                src={getCoverUrl(track.id)}
+                                                                alt={track.title}
+                                                                className="w-full h-full object-cover"
+                                                            />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center">
+                                                                <Music className="w-6 h-6 text-gray-400" />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className={`font-medium truncate ${isCurrentTrack ? 'text-[#B93939]' : ''}`}>{track.title}</p>
+                                                        <p className="text-sm text-gray-400 truncate">{artistNames}</p>
+                                                    </div>
                                                 </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="font-medium truncate">{track.title}</p>
-                                                    <p className="text-sm text-gray-400 truncate">{artistNames}</p>
-                                                </div>
+
                                                 <span className="text-sm text-gray-400 flex-shrink-0">
                                                     {formatTime(track.duration)}
                                                 </span>
-                                            </button>
+
+                                                <div className="flex-shrink-0">
+                                                    <TrackContextMenu
+                                                        track={track}
+                                                        context="search"
+                                                        isLiked={likedSongIds.has(track.id)}
+                                                        onAddToQueue={() => addToQueue?.(track)}
+                                                        onPlayNext={() => playNextInQueue?.(track)}
+                                                        onToggleLike={() => handleToggleLike(track.id)}
+                                                        onAddToPlaylist={(playlistId: number) => handleAddToPlaylist(track.id, playlistId)}
+                                                    />
+                                                </div>
+                                            </div>
                                         );
                                     })}
                                 </div>
@@ -876,36 +993,52 @@ useEffect(() => {
                                             const artistNames = track.artists?.map(a => a.name).join(', ') || 'Unknown Artist';
                                             
                                             return (
-                                                <button
+                                                <div
                                                     key={track.id}
-                                                    onClick={() => playTrack(track, tracks)}
                                                     className={`w-full flex items-center gap-4 p-3 rounded-lg hover:bg-[#1e1e1e] transition text-left ${
                                                         isCurrentTrack ? 'bg-[#B93939]/20' : ''
                                                     }`}
                                                 >
-                                                    <div className="w-12 h-12 bg-neutral-800 rounded flex-shrink-0 overflow-hidden">
-                                                        {track.cover_path ? (
-                                                            <img
-                                                                src={getCoverUrl(track.id)}
-                                                                alt={track.title}
-                                                                className="w-full h-full object-cover"
-                                                            />
-                                                        ) : (
-                                                            <div className="w-full h-full flex items-center justify-center">
-                                                                <Music className="w-6 h-6 text-gray-400" />
-                                                            </div>
-                                                        )}
+                                                    <div
+                                                        onClick={() => playTrack(track, tracks)}
+                                                        className="flex-1 min-w-0 flex items-center gap-4 cursor-pointer"
+                                                    >
+                                                        <div className="w-12 h-12 bg-neutral-800 rounded flex-shrink-0 overflow-hidden">
+                                                            {track.cover_path ? (
+                                                                <img
+                                                                    src={getCoverUrl(track.id)}
+                                                                    alt={track.title}
+                                                                    className="w-full h-full object-cover"
+                                                                />
+                                                            ) : (
+                                                                <div className="w-full h-full flex items-center justify-center">
+                                                                    <Music className="w-6 h-6 text-gray-400" />
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className={`font-medium truncate ${isCurrentTrack ? 'text-[#B93939]' : ''}`}>
+                                                                {track.title}
+                                                            </p>
+                                                            <p className="text-sm text-gray-400 truncate">{artistNames}</p>
+                                                        </div>
                                                     </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className={`font-medium truncate ${isCurrentTrack ? 'text-[#B93939]' : ''}`}>
-                                                            {track.title}
-                                                        </p>
-                                                        <p className="text-sm text-gray-400 truncate">{artistNames}</p>
-                                                    </div>
+
                                                     <span className="text-sm text-gray-400 flex-shrink-0">
                                                         {formatTime(track.duration)}
                                                     </span>
-                                                </button>
+
+                                                    <div className="flex-shrink-0">
+                                                        <TrackContextMenu
+                                                            track={track}
+                                                            isLiked={likedSongIds.has(track.id)}
+                                                            onAddToQueue={() => addToQueue?.(track)}
+                                                            onPlayNext={() => playNextInQueue?.(track)}
+                                                            onToggleLike={() => handleToggleLike(track.id)}
+                                                            onAddToPlaylist={(playlistId: number) => handleAddToPlaylist(track.id, playlistId)}
+                                                        />
+                                                    </div>
+                                                </div>
                                             );
                                         })}
                                     </div>
@@ -930,36 +1063,52 @@ useEffect(() => {
                                             const artistNames = track.artists?.map(a => a.name).join(', ') || 'Unknown Artist';
                                             
                                             return (
-                                                <button
+                                                <div
                                                     key={track.id}
-                                                    onClick={() => playTrack(track, tracks)}
                                                     className={`w-full flex items-center gap-4 p-3 rounded-lg hover:bg-[#1e1e1e] transition text-left ${
                                                         isCurrentTrack ? 'bg-[#B93939]/20' : ''
                                                     }`}
                                                 >
-                                                    <div className="w-12 h-12 bg-neutral-800 rounded flex-shrink-0 overflow-hidden">
-                                                        {track.cover_path ? (
-                                                            <img
-                                                                src={getCoverUrl(track.id)}
-                                                                alt={track.title}
-                                                                className="w-full h-full object-cover"
-                                                            />
-                                                        ) : (
-                                                            <div className="w-full h-full flex items-center justify-center">
-                                                                <Music className="w-6 h-6 text-gray-400" />
-                                                            </div>
-                                                        )}
+                                                    <div
+                                                        onClick={() => playTrack(track, tracks)}
+                                                        className="flex-1 min-w-0 flex items-center gap-4 cursor-pointer"
+                                                    >
+                                                        <div className="w-12 h-12 bg-neutral-800 rounded flex-shrink-0 overflow-hidden">
+                                                            {track.cover_path ? (
+                                                                <img
+                                                                    src={getCoverUrl(track.id)}
+                                                                    alt={track.title}
+                                                                    className="w-full h-full object-cover"
+                                                                />
+                                                            ) : (
+                                                                <div className="w-full h-full flex items-center justify-center">
+                                                                    <Music className="w-6 h-6 text-gray-400" />
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className={`font-medium truncate ${isCurrentTrack ? 'text-[#B93939]' : ''}`}>
+                                                                {track.title}
+                                                            </p>
+                                                            <p className="text-sm text-gray-400 truncate">{artistNames}</p>
+                                                        </div>
                                                     </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className={`font-medium truncate ${isCurrentTrack ? 'text-[#B93939]' : ''}`}>
-                                                            {track.title}
-                                                        </p>
-                                                        <p className="text-sm text-gray-400 truncate">{artistNames}</p>
-                                                    </div>
+
                                                     <span className="text-sm text-gray-400 flex-shrink-0">
                                                         {formatTime(track.duration)}
                                                     </span>
-                                                </button>
+
+                                                    <div className="flex-shrink-0">
+                                                        <TrackContextMenu
+                                                            track={track}
+                                                            isLiked={likedSongIds.has(track.id)}
+                                                            onAddToQueue={() => addToQueue?.(track)}
+                                                            onPlayNext={() => playNextInQueue?.(track)}
+                                                            onToggleLike={() => handleToggleLike(track.id)}
+                                                            onAddToPlaylist={(playlistId: number) => handleAddToPlaylist(track.id, playlistId)}
+                                                        />
+                                                    </div>
+                                                </div>
                                             );
                                         })}
                                     </div>

@@ -15,6 +15,7 @@ export default function AlbumSection({ albums, onAlbumsUpdate }: AlbumSectionPro
   const [albumView, setAlbumView] = useState<{ type: 'list' | 'detail'; data?: Album }>({ type: 'list' });
   const [showDetailMenu, setShowDetailMenu] = useState(false);
   const [likedSongIds, setLikedSongIds] = useState<Set<number>>(new Set());
+  const [albumCovers, setAlbumCovers] = useState<Record<number, string>>({});
 
   // Fetch liked songs on mount
   useState(() => {
@@ -35,6 +36,30 @@ export default function AlbumSection({ albums, onAlbumsUpdate }: AlbumSectionPro
       }
     };
     fetchLikedSongs();
+  });
+
+  // Fetch album covers for list view
+  useState(() => {
+    const fetchAlbumCovers = async () => {
+      const covers: Record<number, string> = {};
+      
+      for (const album of albums) {
+        try {
+          const albumData = await getAlbum(album.id);
+          if (albumData.tracks && albumData.tracks.length > 0) {
+            covers[album.id] = getCoverUrl(albumData.tracks[0].id);
+          }
+        } catch (error) {
+          console.error(`Failed to fetch cover for album ${album.id}:`, error);
+        }
+      }
+      
+      setAlbumCovers(covers);
+    };
+
+    if (albums.length > 0) {
+      fetchAlbumCovers();
+    }
   });
 
   const handleAlbumClick = async (albumId: number) => {
@@ -125,25 +150,37 @@ export default function AlbumSection({ albums, onAlbumsUpdate }: AlbumSectionPro
         <h3 className="text-2xl font-bold text-white mb-4">Your Albums</h3>
         {albums.length > 0 ? (
           <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-            {albums.map((album) => (
-              <div
-                key={album.id}
-                onClick={() => handleAlbumClick(album.id)}
-                className="flex items-center gap-3 p-3 bg-neutral-900 rounded-lg hover:bg-neutral-800 cursor-pointer transition group"
-              >
-                <div className="w-16 h-16 bg-neutral-800 rounded flex-shrink-0 overflow-hidden group-hover:bg-[#B93939]/20 transition">
-                  <AlbumIcon className="w-8 h-8 text-neutral-700 group-hover:text-[#B93939] transition mx-auto mt-4" />
+            {albums.map((album) => {
+              const coverUrl = albumCovers[album.id];
+
+              return (
+                <div
+                  key={album.id}
+                  onClick={() => handleAlbumClick(album.id)}
+                  className="flex items-center gap-3 p-3 bg-neutral-900 rounded-lg hover:bg-neutral-800 cursor-pointer transition group"
+                >
+                  <div className="w-16 h-16 bg-neutral-800 rounded flex-shrink-0 overflow-hidden group-hover:bg-[#B93939]/20 transition">
+                    {coverUrl ? (
+                      <img
+                        src={coverUrl}
+                        alt={album.title}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <AlbumIcon className="w-8 h-8 text-neutral-700 group-hover:text-[#B93939] transition mx-auto mt-4" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-white truncate group-hover:text-[#B93939] transition">
+                      {album.title}
+                    </p>
+                    <p className="text-sm text-gray-400 truncate">
+                      {album.artists.join(', ')}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-white truncate group-hover:text-[#B93939] transition">
-                    {album.title}
-                  </p>
-                  <p className="text-sm text-gray-400 truncate">
-                    {album.artists.join(', ')}
-                  </p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="bg-neutral-900 rounded-lg p-6 text-center border border-neutral-800">
@@ -284,7 +321,7 @@ export default function AlbumSection({ albums, onAlbumsUpdate }: AlbumSectionPro
             {albumView.data.tracks && albumView.data.tracks.length > 0 ? (
               <div className="space-y-1">
                 {/* Header */}
-                <div className="grid grid-cols-[40px_1fr_80px_40px] gap-4 px-4 py-2 text-sm text-gray-400 border-b border-neutral-800">
+                <div className="grid grid-cols-[30px_1fr_60px_30px] md:grid-cols-[40px_1fr_80px_40px] gap-2 md:gap-4 px-2 md:px-4 py-2 text-xs md:text-sm text-gray-400 border-b border-neutral-800">
                   <div className="text-center">#</div>
                   <div>Title</div>
                   <div className="text-right">Duration</div>
@@ -306,7 +343,7 @@ export default function AlbumSection({ albums, onAlbumsUpdate }: AlbumSectionPro
                   return (
                     <div
                       key={track.id}
-                      className={`group grid grid-cols-[40px_1fr_80px_40px] gap-4 px-4 py-3 rounded hover:bg-neutral-800 cursor-pointer transition ${
+                      className={`group grid grid-cols-[30px_1fr_60px_30px] md:grid-cols-[40px_1fr_80px_40px] gap-2 md:gap-4 px-2 md:px-4 py-2 md:py-3 rounded hover:bg-neutral-800 cursor-pointer transition ${
                         isTrackPlaying ? 'bg-[#B93939]/20' : ''
                       }`}
                     >
@@ -361,13 +398,13 @@ export default function AlbumSection({ albums, onAlbumsUpdate }: AlbumSectionPro
                         }}
                         className="min-w-0"
                       >
-                        <p className={`truncate transition ${
+                        <p className={`truncate transition text-sm md:text-base ${
                           isTrackPlaying ? 'text-[#B93939] font-semibold' : 'text-white group-hover:text-[#B93939]'
                         }`}>
                           {track.title}
                         </p>
                         {trackArtists && trackArtists.length > 0 && (
-                          <p className={`text-sm truncate ${
+                          <p className={`text-xs md:text-sm truncate ${
                             isTrackPlaying ? 'text-[#B93939]/80' : 'text-gray-400'
                           }`}>
                             {trackArtists.map((a: { name: string }) => a.name).join(', ')}

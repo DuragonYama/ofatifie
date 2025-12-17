@@ -71,7 +71,10 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
   const getPlaylistCoverUrl = (playlist: Playlist) => {
     // Check if playlist has a custom cover
     if (playlist.cover_path) {
-      return `http://localhost:8000${playlist.cover_path}`;
+      // Normalize path: replace backslashes with forward slashes, ensure leading slash
+      const normalizedPath = playlist.cover_path.replace(/\\/g, '/');
+      const path = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
+      return `http://localhost:8000${path}`;
     }
     // Otherwise use first track's cover
     if (playlist.tracks && playlist.tracks.length > 0) {
@@ -313,25 +316,45 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
 
         {playlists.length > 0 ? (
           <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-            {playlists.map((playlist) => (
-              <div
-                key={playlist.id}
-                onClick={() => handlePlaylistClick(playlist.id)}
-                className="flex items-center gap-3 p-3 bg-neutral-900 rounded-lg hover:bg-neutral-800 cursor-pointer transition group"
-              >
-                <div className="w-16 h-16 bg-neutral-800 rounded flex-shrink-0 overflow-hidden group-hover:bg-[#B93939]/20 transition">
-                  <Music className="w-8 h-8 text-neutral-700 group-hover:text-[#B93939] transition mx-auto mt-4" />
+            {playlists.map((playlist) => {
+              // Get cover URL for list item
+              const coverUrl = (() => {
+                if (playlist.cover_path) {
+                  const normalizedPath = playlist.cover_path.replace(/\\/g, '/');
+                  const path = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
+                  return `http://localhost:8000${path}`;
+                }
+                return null;
+              })();
+
+              return (
+                <div
+                  key={playlist.id}
+                  onClick={() => handlePlaylistClick(playlist.id)}
+                  className="flex items-center gap-3 p-3 bg-neutral-900 rounded-lg hover:bg-neutral-800 cursor-pointer transition group"
+                >
+                  <div className="w-16 h-16 bg-neutral-800 rounded flex-shrink-0 overflow-hidden group-hover:bg-[#B93939]/20 transition">
+                    {coverUrl ? (
+                      <img
+                        src={coverUrl}
+                        alt={playlist.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <Music className="w-8 h-8 text-neutral-700 group-hover:text-[#B93939] transition mx-auto mt-4" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-white truncate group-hover:text-[#B93939] transition">
+                      {playlist.name}
+                    </p>
+                    <p className="text-sm text-gray-400 truncate">
+                      {playlist.description || 'Playlist'}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-white truncate group-hover:text-[#B93939] transition">
-                    {playlist.name}
-                  </p>
-                  <p className="text-sm text-gray-400 truncate">
-                    {playlist.description || 'Playlist'}
-                  </p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="bg-neutral-900 rounded-lg p-6 text-center border border-neutral-800">
@@ -374,99 +397,6 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
                   className="flex-1 bg-[#B93939] hover:bg-[#a33232] text-white rounded-full py-3 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isCreating ? 'Creating...' : 'Create'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Edit Name Modal */}
-        {showEditNameModal && editingPlaylist && (
-          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-            <div className="bg-[#282828] rounded-xl p-6 max-w-md w-full">
-              <h3 className="text-xl font-bold mb-4">Edit Playlist Name</h3>
-              <p className="text-gray-400 text-sm mb-4">
-                Enter a new name for "{editingPlaylist.name}"
-              </p>
-              <input
-                type="text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                placeholder="Playlist name"
-                className="w-full bg-[#3e3e3e] text-white rounded-lg px-4 py-3 mb-4 focus:outline-none focus:ring-2 focus:ring-[#B93939]"
-                onKeyDown={(e) => e.key === 'Enter' && handleUpdateName()}
-                autoFocus
-              />
-              <div className="flex gap-3">
-                <button
-                  onClick={() => {
-                    setShowEditNameModal(false);
-                    setEditName('');
-                    setEditingPlaylist(null);
-                  }}
-                  className="flex-1 bg-neutral-700 hover:bg-neutral-600 text-white rounded-full py-3 transition"
-                  disabled={isUpdating}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleUpdateName}
-                  disabled={!editName.trim() || isUpdating}
-                  className="flex-1 bg-[#B93939] hover:bg-[#a33232] text-white rounded-full py-3 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isUpdating ? 'Saving...' : 'Save'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Edit Cover Modal */}
-        {showEditCoverModal && editingPlaylist && (
-          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-            <div className="bg-[#282828] rounded-xl p-6 max-w-md w-full">
-              <h3 className="text-xl font-bold mb-4">Edit Playlist Cover</h3>
-              <p className="text-gray-400 text-sm mb-4">
-                Upload a new cover image for "{editingPlaylist.name}"
-              </p>
-              
-              {/* File Upload Area */}
-              <label className="block w-full bg-[#3e3e3e] hover:bg-[#4a4a4a] rounded-lg p-8 cursor-pointer transition mb-4 border-2 border-dashed border-neutral-600 hover:border-[#B93939]">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setCoverFile(e.target.files?.[0] || null)}
-                  className="hidden"
-                />
-                <div className="flex flex-col items-center text-center">
-                  <Image className="w-12 h-12 text-gray-400 mb-3" />
-                  <p className="text-white font-medium mb-1">
-                    {coverFile ? coverFile.name : 'Click to upload image'}
-                  </p>
-                  <p className="text-sm text-gray-400">
-                    JPG, PNG (recommended: 300x300px)
-                  </p>
-                </div>
-              </label>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => {
-                    setShowEditCoverModal(false);
-                    setCoverFile(null);
-                    setEditingPlaylist(null);
-                  }}
-                  className="flex-1 bg-neutral-700 hover:bg-neutral-600 text-white rounded-full py-3 transition"
-                  disabled={isUpdating}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleUpdateCover}
-                  disabled={!coverFile || isUpdating}
-                  className="flex-1 bg-[#B93939] hover:bg-[#a33232] text-white rounded-full py-3 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isUpdating ? 'Uploading...' : 'Upload'}
                 </button>
               </div>
             </div>
@@ -610,7 +540,7 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
             {playlistView.data.tracks && playlistView.data.tracks.length > 0 ? (
               <div className="space-y-1">
                 {/* Header */}
-                <div className="grid grid-cols-[40px_1fr_80px_40px] gap-4 px-4 py-2 text-sm text-gray-400 border-b border-neutral-800">
+                <div className="grid grid-cols-[30px_1fr_60px_30px] md:grid-cols-[40px_1fr_80px_40px] gap-2 md:gap-4 px-2 md:px-4 py-2 text-xs md:text-sm text-gray-400 border-b border-neutral-800">
                   <div className="text-center">#</div>
                   <div>Title</div>
                   <div className="text-right">Duration</div>
@@ -631,7 +561,7 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
                   return (
                     <div
                       key={track.track_id}
-                      className={`group grid grid-cols-[40px_1fr_80px_40px] gap-4 px-4 py-3 rounded hover:bg-neutral-800 cursor-pointer transition ${
+                      className={`group grid grid-cols-[30px_1fr_60px_30px] md:grid-cols-[40px_1fr_80px_40px] gap-2 md:gap-4 px-2 md:px-4 py-2 md:py-3 rounded hover:bg-neutral-800 cursor-pointer transition ${
                         isTrackPlaying ? 'bg-[#B93939]/20' : ''
                       }`}
                     >
@@ -682,13 +612,13 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
                         }}
                         className="min-w-0"
                       >
-                        <p className={`truncate transition ${
+                        <p className={`truncate transition text-sm md:text-base ${
                           isTrackPlaying ? 'text-[#B93939] font-semibold' : 'text-white group-hover:text-[#B93939]'
                         }`}>
                           {track.title}
                         </p>
                         {track.artists && track.artists.length > 0 && (
-                          <p className={`text-sm truncate ${
+                          <p className={`text-xs md:text-sm truncate ${
                             isTrackPlaying ? 'text-[#B93939]/80' : 'text-gray-400'
                           }`}>
                             {track.artists.join(', ')}
@@ -737,6 +667,99 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
                 <p className="text-gray-500">No tracks in this playlist</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Name Modal */}
+      {showEditNameModal && editingPlaylist && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#282828] rounded-xl p-6 max-w-md w-full">
+            <h3 className="text-xl font-bold mb-4">Edit Playlist Name</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              Enter a new name for "{editingPlaylist.name}"
+            </p>
+            <input
+              type="text"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              placeholder="Playlist name"
+              className="w-full bg-[#3e3e3e] text-white rounded-lg px-4 py-3 mb-4 focus:outline-none focus:ring-2 focus:ring-[#B93939]"
+              onKeyDown={(e) => e.key === 'Enter' && handleUpdateName()}
+              autoFocus
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowEditNameModal(false);
+                  setEditName('');
+                  setEditingPlaylist(null);
+                }}
+                className="flex-1 bg-neutral-700 hover:bg-neutral-600 text-white rounded-full py-3 transition"
+                disabled={isUpdating}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdateName}
+                disabled={!editName.trim() || isUpdating}
+                className="flex-1 bg-[#B93939] hover:bg-[#a33232] text-white rounded-full py-3 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUpdating ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Cover Modal */}
+      {showEditCoverModal && editingPlaylist && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#282828] rounded-xl p-6 max-w-md w-full">
+            <h3 className="text-xl font-bold mb-4">Edit Playlist Cover</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              Upload a new cover image for "{editingPlaylist.name}"
+            </p>
+            
+            {/* File Upload Area */}
+            <label className="block w-full bg-[#3e3e3e] hover:bg-[#4a4a4a] rounded-lg p-8 cursor-pointer transition mb-4 border-2 border-dashed border-neutral-600 hover:border-[#B93939]">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setCoverFile(e.target.files?.[0] || null)}
+                className="hidden"
+              />
+              <div className="flex flex-col items-center text-center">
+                <Image className="w-12 h-12 text-gray-400 mb-3" />
+                <p className="text-white font-medium mb-1">
+                  {coverFile ? coverFile.name : 'Click to upload image'}
+                </p>
+                <p className="text-sm text-gray-400">
+                  JPG, PNG (recommended: 300x300px)
+                </p>
+              </div>
+            </label>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowEditCoverModal(false);
+                  setCoverFile(null);
+                  setEditingPlaylist(null);
+                }}
+                className="flex-1 bg-neutral-700 hover:bg-neutral-600 text-white rounded-full py-3 transition"
+                disabled={isUpdating}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdateCover}
+                disabled={!coverFile || isUpdating}
+                className="flex-1 bg-[#B93939] hover:bg-[#a33232] text-white rounded-full py-3 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUpdating ? 'Uploading...' : 'Upload'}
+              </button>
+            </div>
           </div>
         </div>
       )}
