@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Music, ArrowLeft, Play, Pause, Plus, MoreVertical, Edit, Image, Trash2, X } from 'lucide-react';
+import { Music, ArrowLeft, Play, Pause, Plus, MoreVertical, Edit, Image, Trash2} from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
 import { getPlaylist } from '../../lib/music-api';
 import TrackContextMenu from '../TrackContextMenu';
@@ -21,7 +21,7 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
   const [isCreating, setIsCreating] = useState(false);
   
   // 3-dot menu states
-  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const [, setOpenMenuId] = useState<number | null>(null);
   const [showDetailMenu, setShowDetailMenu] = useState(false);
   
   // Edit modals
