@@ -4,6 +4,7 @@ import { usePlayer } from '../../context/PlayerContext';
 import { useRef } from 'react';
 import TrackContextMenu from '../TrackContextMenu';
 import type { Track, Album, Artist, Playlist } from '../../types';
+import { API_URL } from '../../config';
 
 // Additional types not in main types file
 interface Genre {
@@ -77,7 +78,7 @@ export default function BrowseViews({
         const fetchLikedSongs = async () => {
             try {
                 const token = localStorage.getItem('token');
-                const response = await fetch('http://localhost:8000/library/liked-songs?skip=0&limit=1000', {
+                const response = await fetch(`${API_URL}/library/liked-songs?skip=0&limit=1000`, {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
@@ -94,24 +95,24 @@ export default function BrowseViews({
     });
 
     const getCoverUrl = (trackId: number) => {
-        return `http://localhost:8000/music/cover/${trackId}`;
+        return `${API_URL}/music/cover/${trackId}`;
     };
 
     const getAlbumCoverUrl = (album: Album) => {
         // Priority 1: Use first_track_id from backend (NEW!)
         if (album.first_track_id) {
-            return `http://localhost:8000/music/cover/${album.first_track_id}`;
+            return `${API_URL}/music/cover/${album.first_track_id}`;
         }
         // Priority 2: If album has tracks in frontend, use first track's cover
         if (album.tracks && album.tracks.length > 0) {
-            return `http://localhost:8000/music/cover/${album.tracks[0].id}`;
+            return `${API_URL}/music/cover/${album.tracks[0].id}`;
         }
         // Priority 3: Try album cover path (usually null)
         if (album.cover_path) {
             if (album.cover_path.startsWith('http')) {
                 return album.cover_path;
             }
-            return `http://localhost:8000${album.cover_path}`;
+            return `${API_URL}${album.cover_path}`;
         }
         return null;
     };
@@ -127,7 +128,7 @@ export default function BrowseViews({
         const isLiked = likedSongIds.has(trackId);
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:8000/library/like/${trackId}`, {
+            const response = await fetch(`${API_URL}/library/like/${trackId}`, {
                 method: isLiked ? 'DELETE' : 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -154,7 +155,7 @@ export default function BrowseViews({
     const handleAddToPlaylist = async (trackId: number, playlistId: number) => {
         try {
             const token = localStorage.getItem('token');
-            await fetch(`http://localhost:8000/playlists/${playlistId}/songs`, {
+            await fetch(`${API_URL}/playlists/${playlistId}/songs`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,

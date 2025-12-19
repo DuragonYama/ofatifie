@@ -1,13 +1,23 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, Link, Loader2, CheckCircle, XCircle, Music } from 'lucide-react';
+import { Upload, Link, Loader2, CheckCircle, XCircle, Music, Clock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { API_URL } from '../config';
 
 interface DownloadStatus {
     id: string;
     type: 'spotify' | 'youtube' | 'upload';
-    status: 'loading' | 'success' | 'error';
+    status: 'queued' | 'loading' | 'success' | 'error';
     message: string;
     url?: string;
+    position?: number | null;
+}
+
+interface QueueInfo {
+    queue_length: number;
+    processing_count: number;
+    max_concurrent: number;
+    completed_count: number;
+    failed_count: number;
 }
 
 export default function Add() {
@@ -20,7 +30,9 @@ export default function Add() {
     const [username, setUsername] = useState('');
     const [storageUsed, setStorageUsed] = useState(0);
     const [storageTotal, setStorageTotal] = useState(0);
+    const [queueInfo, setQueueInfo] = useState<QueueInfo | null>(null);
     const activeUrls = useRef<Set<string>>(new Set());
+    const pollingInterval = useRef<number | null>(null);
 
     useEffect(() => {
         const user = localStorage.getItem('username');
@@ -31,7 +43,7 @@ export default function Add() {
     const fetchStorage = async () => {
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch('http://localhost:8000/library/stats', {
+            const response = await fetch(`${API_URL}/library/stats`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (response.ok) {
@@ -44,120 +56,173 @@ export default function Add() {
         }
     };
 
+    const fetchMyJobs = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`${API_URL}/downloads/my-jobs`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                // Map backend job format to frontend download format
+                const jobs = data.jobs.map((job: any) => ({
+                    id: job.id,
+                    type: job.type,
+                    status: job.status === 'processing' ? 'loading' : job.status,
+                    message: job.message,
+                    url: job.url,
+                    position: job.position
+                }));
+                setDownloads(jobs);
+
+                // Stop polling if no active jobs
+                const hasActiveJobs = jobs.some((job: any) =>
+                    job.status === 'queued' || job.status === 'loading'
+                );
+                if (!hasActiveJobs && pollingInterval.current) {
+                    stopPolling();
+                }
+            }
+        } catch (error) {
+            console.error('Failed to fetch jobs:', error);
+        }
+    };
+
+    const fetchQueueInfo = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`${API_URL}/downloads/queue-info`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setQueueInfo(data);
+            }
+        } catch (error) {
+            console.error('Failed to fetch queue info:', error);
+        }
+    };
+
+    const addToQueue = async (url: string, downloadType: 'spotify' | 'youtube') => {
+        try {
+            const token = localStorage.getItem('token');
+
+            // Build URL with query parameters
+            const apiUrl = new URL(`${API_URL}/downloads/queue`);
+            apiUrl.searchParams.append('url', url);
+            apiUrl.searchParams.append('download_type', downloadType);
+
+            const response = await fetch(apiUrl.toString(), {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.ok) {
+                const job = await response.json();
+                // Add to downloads immediately
+                const newDownload: DownloadStatus = {
+                    id: job.id,
+                    type: downloadType,
+                    status: job.status === 'processing' ? 'loading' : job.status,
+                    message: job.message,
+                    url: job.url,
+                    position: job.position
+                };
+                setDownloads(prev => [newDownload, ...prev]);
+
+                // Start polling
+                if (!pollingInterval.current) {
+                    startPolling();
+                }
+            } else {
+                const error = await response.json();
+                let errorMsg = `Failed to add to queue`;
+                if (typeof error.detail === 'string') {
+                    errorMsg = error.detail;
+                }
+
+                // Add error download
+                const errorDownload: DownloadStatus = {
+                    id: Date.now().toString(),
+                    type: downloadType,
+                    status: 'error',
+                    message: errorMsg,
+                    url: url
+                };
+                setDownloads(prev => [errorDownload, ...prev]);
+            }
+        } catch (error) {
+            console.error('Failed to add to queue:', error);
+            const errorDownload: DownloadStatus = {
+                id: Date.now().toString(),
+                type: downloadType,
+                status: 'error',
+                message: 'Network error. Please try again.',
+                url: url
+            };
+            setDownloads(prev => [errorDownload, ...prev]);
+        }
+    };
+
+    const startPolling = () => {
+        // Fetch immediately
+        fetchMyJobs();
+        fetchQueueInfo();
+
+        // Then poll every 3 seconds (reduced from 2 to minimize server load)
+        pollingInterval.current = setInterval(() => {
+            fetchMyJobs();
+            fetchQueueInfo();
+        }, 3000);
+    };
+
+    const stopPolling = () => {
+        if (pollingInterval.current) {
+            clearInterval(pollingInterval.current);
+            pollingInterval.current = null;
+        }
+    };
+
     const addDownload = (type: 'spotify' | 'youtube' | 'upload', url?: string) => {
         const id = Date.now().toString() + Math.random();
         const newDownload: DownloadStatus = {
             id,
             type,
             status: 'loading',
-            message: `Downloading from ${type}...`,
+            message: `Uploading ${type}...`,
             url
         };
         setDownloads(prev => [...prev, newDownload]);
         return id;
     };
 
-    const updateDownload = (id: string, status: 'loading' | 'success' | 'error', message: string) => {
-        setDownloads(prev => prev.map(d => 
+    const updateDownload = (id: string, status: 'queued' | 'loading' | 'success' | 'error', message: string) => {
+        setDownloads(prev => prev.map(d =>
             d.id === id ? { ...d, status, message } : d
         ));
     };
 
-    const processSpotifyDownload = async (downloadId: string, url: string, token: string) => {
-        try {
-            const apiUrl = new URL('http://localhost:8000/music/download/spotify');
-            apiUrl.searchParams.append('spotify_url', url);
-            
-            const response = await fetch(apiUrl.toString(), {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            // Handle 504 timeout - backend is probably still processing
-            if (response.status === 504) {
-                await new Promise(resolve => setTimeout(resolve, 500));
-                updateDownload(downloadId, 'success', 'Download started (processing in background)');
-                return;
-            }
-
-            if (response.ok) {
-                const data = await response.json();
-                
-                // Wait 500ms so spinner is visible
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
-                updateDownload(downloadId, 'success', `Successfully downloaded: ${data.title || 'Track'}`);
-            } else {
-                const error = await response.json();
-                let errorMsg = 'Failed to download from Spotify';
-                
-                if (typeof error.detail === 'string') {
-                    errorMsg = error.detail;
-                } else if (Array.isArray(error.detail) && error.detail.length > 0) {
-                    errorMsg = error.detail[0].msg || JSON.stringify(error.detail[0]);
-                } else if (error.detail) {
-                    errorMsg = JSON.stringify(error.detail);
-                }
-                
-                updateDownload(downloadId, 'error', errorMsg);
-            }
-        } catch (error) {
-            updateDownload(downloadId, 'error', 'Network error. Please try again.');
-        } finally {
-            activeUrls.current.delete(url);
-        }
-    };
-
-    const processYoutubeDownload = async (downloadId: string, url: string, token: string) => {
-        try {
-            const apiUrl = new URL('http://localhost:8000/music/download/youtube');
-            apiUrl.searchParams.append('youtube_url', url);
-            
-            const response = await fetch(apiUrl.toString(), {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            // Handle 504 timeout - backend is probably still processing
-            if (response.status === 504) {
-                await new Promise(resolve => setTimeout(resolve, 500));
-                updateDownload(downloadId, 'success', 'Download started (processing in background)');
-                return;
-            }
-
-            if (response.ok) {
-                const data = await response.json();
-                
-                // Wait 500ms so spinner is visible
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
-                updateDownload(downloadId, 'success', `Successfully downloaded: ${data.title || 'Track'}`);
-            } else {
-                const error = await response.json();
-                let errorMsg = 'Failed to download from YouTube';
-                
-                if (typeof error.detail === 'string') {
-                    errorMsg = error.detail;
-                } else if (Array.isArray(error.detail) && error.detail.length > 0) {
-                    errorMsg = error.detail[0].msg || JSON.stringify(error.detail[0]);
-                } else if (error.detail) {
-                    errorMsg = JSON.stringify(error.detail);
-                }
-                
-                updateDownload(downloadId, 'error', errorMsg);
-            }
-        } catch (error) {
-            updateDownload(downloadId, 'error', 'Network error. Please try again.');
-        } finally {
-            activeUrls.current.delete(url);
-        }
-    };
-
-    const hasActiveDownloads = downloads.some(d => d.status === 'loading');
+    const hasActiveDownloads = downloads.some(d => d.status === 'loading' || d.status === 'queued');
 
     useEffect(() => {
         window.dispatchEvent(new CustomEvent('downloads-active', { detail: hasActiveDownloads }));
     }, [hasActiveDownloads]);
+
+    // Polling management: start when there are active jobs, stop when all complete
+    useEffect(() => {
+        const hasActiveJobs = downloads.some(d => d.status === 'loading' || d.status === 'queued');
+
+        if (hasActiveJobs && !pollingInterval.current) {
+            startPolling();
+        } else if (!hasActiveJobs && pollingInterval.current) {
+            stopPolling();
+        }
+
+        // Cleanup on unmount
+        return () => stopPolling();
+    }, [downloads]);
 
     // Check if all downloads complete, then redirect
     useEffect(() => {
@@ -182,13 +247,10 @@ export default function Add() {
         }
 
         activeUrls.current.add(spotifyUrl);
-        
-        const id = addDownload('spotify', spotifyUrl);
+
+        addToQueue(spotifyUrl, 'spotify');
         setShowSpotifyModal(false);
         setSpotifyUrl('');
-        
-        const token = localStorage.getItem('token');
-        processSpotifyDownload(id, spotifyUrl, token!);
     };
 
     const handleYoutubeDownload = () => {
@@ -200,13 +262,10 @@ export default function Add() {
         }
 
         activeUrls.current.add(youtubeUrl);
-        
-        const id = addDownload('youtube', youtubeUrl);
+
+        addToQueue(youtubeUrl, 'youtube');
         setShowYoutubeModal(false);
         setYoutubeUrl('');
-        
-        const token = localStorage.getItem('token');
-        processYoutubeDownload(id, youtubeUrl, token!);
     };
 
     const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -223,7 +282,7 @@ export default function Add() {
                     const formData = new FormData();
                     formData.append('file', file);
 
-                    const response = await fetch('http://localhost:8000/music/upload', {
+                    const response = await fetch(`${API_URL}/music/upload`, {
                         method: 'POST',
                         headers: { 'Authorization': `Bearer ${token}` },
                         body: formData
@@ -361,7 +420,16 @@ export default function Add() {
 
                 {downloads.length > 0 && (
                     <div className="space-y-3">
-                        <h3 className="text-xl font-semibold mb-4">Recent Activity</h3>
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-xl font-semibold">Recent Activity</h3>
+                            {queueInfo && (queueInfo.queue_length > 0 || queueInfo.processing_count > 0) && (
+                                <div className="text-sm text-gray-400 bg-[#1e1e1e] px-3 py-1 rounded-full">
+                                    {queueInfo.queue_length > 0 && `${queueInfo.queue_length} in queue`}
+                                    {queueInfo.queue_length > 0 && queueInfo.processing_count > 0 && ' • '}
+                                    {queueInfo.processing_count > 0 && `${queueInfo.processing_count} downloading`}
+                                </div>
+                            )}
+                        </div>
                         {downloads.map(download => (
                             <div
                                 key={download.id}
@@ -370,6 +438,9 @@ export default function Add() {
                                 }`}
                             >
                                 <div className="flex-shrink-0">
+                                    {download.status === 'queued' && (
+                                        <Clock className="w-6 h-6 text-yellow-500" />
+                                    )}
                                     {download.status === 'loading' && (
                                         <Loader2 className="w-6 h-6 text-[#B93939] animate-spin" />
                                     )}
@@ -381,12 +452,19 @@ export default function Add() {
                                     )}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-white font-medium truncate">{download.message}</p>
+                                    <div className="flex items-center gap-2">
+                                        <p className="text-white font-medium truncate">{download.message}</p>
+                                        {download.status === 'queued' && download.position && (
+                                            <span className="flex-shrink-0 text-xs bg-yellow-500/20 text-yellow-500 px-2 py-0.5 rounded-full">
+                                                #{download.position}
+                                            </span>
+                                        )}
+                                    </div>
                                     {download.url && (
                                         <p className="text-sm text-gray-400 truncate">{download.url}</p>
                                     )}
                                 </div>
-                                {download.status !== 'loading' && (
+                                {download.status !== 'loading' && download.status !== 'queued' && (
                                     <button
                                         onClick={() => removeDownload(download.id)}
                                         className="flex-shrink-0 text-gray-400 hover:text-white transition"

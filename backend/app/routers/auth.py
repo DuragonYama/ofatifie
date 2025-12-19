@@ -186,19 +186,27 @@ async def upload_avatar(
     upload_dir = Path("uploads/avatars")
     upload_dir.mkdir(parents=True, exist_ok=True)
     
-    # Delete old avatar if exists
+    # Delete old avatar if exists (async to avoid blocking)
+    import asyncio
+
     if current_user.avatar_path:
         old_avatar = Path(current_user.avatar_path)
         if old_avatar.exists():
-            old_avatar.unlink()
+            await asyncio.to_thread(old_avatar.unlink)
     
     # Save with unique filename: user_{id}.{ext}
     filename = f"user_{current_user.id}.{file_extension}"
     file_path = upload_dir / filename
     
-    # Save file
-    with file_path.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # Save file (async to avoid blocking)
+    import asyncio
+
+    def _save_avatar_file(file_obj, dest_path):
+        """Helper to save avatar file in thread pool"""
+        with dest_path.open("wb") as buffer:
+            shutil.copyfileobj(file_obj, buffer)
+
+    await asyncio.to_thread(_save_avatar_file, file.file, file_path)
     
     # Update user's avatar_path in database
     current_user.avatar_path = str(file_path)

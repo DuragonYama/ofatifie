@@ -1,6 +1,7 @@
 import { usePlayer } from '../context/PlayerContext';
 import { Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1, Volume2, VolumeX, ChevronUp, Maximize2, X } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
+import { API_URL } from '../config';
 
 interface Lyrics {
     lyrics_text: string | null;
@@ -45,6 +46,7 @@ export default function MusicPlayer() {
     const [currentLyricIndex, setCurrentLyricIndex] = useState(-1);
     const [previousLyricIndex, setPreviousLyricIndex] = useState(-1);
     const [isLyricsVisible, setIsLyricsVisible] = useState(false);
+    const [showUnsyncedLyrics, setShowUnsyncedLyrics] = useState(false);
 
     const expandedTitleRef = useRef<HTMLHeadingElement>(null);
     const compactTitleRef = useRef<HTMLParagraphElement>(null);
@@ -138,7 +140,7 @@ export default function MusicPlayer() {
             
             try {
                 const token = localStorage.getItem('token');
-                const response = await fetch(`http://localhost:8000/library/liked-songs`, {
+                const response = await fetch(`${API_URL}/library/liked-songs`, {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
@@ -165,13 +167,15 @@ export default function MusicPlayer() {
                 setLyrics(null);
                 setParsedLyrics([]);
                 setIsLyricsVisible(false);
+                setShowUnsyncedLyrics(false);
                 return;
             }
 
             setLyricsLoading(true);
+            setShowUnsyncedLyrics(false); // Reset when new track loads
             try {
                 const token = localStorage.getItem('token');
-                const response = await fetch(`http://localhost:8000/lyrics/track/${currentTrack.id}`, {
+                const response = await fetch(`${API_URL}/lyrics/track/${currentTrack.id}`, {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
@@ -179,12 +183,18 @@ export default function MusicPlayer() {
 
                 if (response.ok) {
                     const data = await response.json();
-                    setLyrics(data);
-                    
-                    if (data.is_synced && data.synced_lyrics) {
-                        const parsed = parseLyrics(data.synced_lyrics);
-                        setParsedLyrics(parsed);
+                    // Check if data is null or empty
+                    if (data && (data.lyrics_text || data.synced_lyrics)) {
+                        setLyrics(data);
+
+                        if (data.is_synced && data.synced_lyrics) {
+                            const parsed = parseLyrics(data.synced_lyrics);
+                            setParsedLyrics(parsed);
+                        } else {
+                            setParsedLyrics([]);
+                        }
                     } else {
+                        setLyrics(null);
                         setParsedLyrics([]);
                     }
                 } else {
@@ -203,14 +213,14 @@ export default function MusicPlayer() {
         fetchLyrics();
     }, [currentTrack?.id]);
 
-    // Show lyrics box with animation when lyrics are loaded
+    // Show lyrics box with animation when lyrics are loaded (synced or unsynced)
     useEffect(() => {
-        if (parsedLyrics.length > 0 && isExpanded) {
+        if (lyrics && isExpanded) {
             setIsLyricsVisible(true);
         } else {
             setIsLyricsVisible(false);
         }
-    }, [parsedLyrics.length, isExpanded]);
+    }, [lyrics, isExpanded]);
 
     // Update current lyric index based on playback time
     useEffect(() => {
@@ -242,7 +252,7 @@ export default function MusicPlayer() {
         setLyricsLoading(true);
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:8000/lyrics/track/${currentTrack.id}/fetch/auto`, {
+            const response = await fetch(`${API_URL}/lyrics/track/${currentTrack.id}/fetch/auto`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -311,7 +321,7 @@ export default function MusicPlayer() {
     };
 
     const getCoverUrl = (trackId: number) => {
-        return `http://localhost:8000/music/cover/${trackId}`;
+        return `${API_URL}/music/cover/${trackId}`;
     };
 
     const toggleLike = async () => {
@@ -319,7 +329,7 @@ export default function MusicPlayer() {
         
         try {
             const token = localStorage.getItem('token');
-            const url = `http://localhost:8000/library/like/${currentTrack.id}`;
+            const url = `${API_URL}/library/like/${currentTrack.id}`;
             const method = isLiked ? 'DELETE' : 'POST';
             
             const response = await fetch(url, {
@@ -340,7 +350,8 @@ export default function MusicPlayer() {
 
     // Render synced lyrics with preview mode
     const renderSyncedLyrics = (isFullscreen: boolean) => {
-        if (parsedLyrics.length === 0) {
+        // No lyrics at all - show fetch button
+        if (!lyrics && parsedLyrics.length === 0) {
             return (
                 <div className="text-center">
                     <p className="text-gray-400 mb-4">No lyrics available</p>
@@ -350,6 +361,42 @@ export default function MusicPlayer() {
                     >
                         Fetch Lyrics
                     </button>
+                </div>
+            );
+        }
+
+        // Lyrics exist but not synced - show button or plain text
+        if (lyrics && parsedLyrics.length === 0 && lyrics.lyrics_text) {
+            // In fullscreen, always show lyrics
+            // In preview, only show if user clicked the button
+            if (!isFullscreen && !showUnsyncedLyrics) {
+                return (
+                    <div className="text-center">
+                        <div className="mb-4 px-4 py-2 bg-black/30 rounded-lg inline-block">
+                            <p className="text-white/80 text-sm">
+                                Unsynced lyrics - accuracy not guaranteed
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => setShowUnsyncedLyrics(true)}
+                            className="px-6 py-2 bg-white hover:bg-gray-200 text-[#B93939] rounded-full transition font-medium"
+                        >
+                            Display lyrics anyway
+                        </button>
+                    </div>
+                );
+            }
+
+            return (
+                <div className={`${!isFullscreen ? 'text-center' : ''}`}>
+                    <div className="mb-4 px-4 py-2 bg-black/30 rounded-lg inline-block">
+                        <p className="text-white/80 text-sm">
+                            Unsynced lyrics - accuracy not guaranteed
+                        </p>
+                    </div>
+                    <div className="text-white whitespace-pre-wrap text-lg leading-relaxed">
+                        {lyrics.lyrics_text}
+                    </div>
                 </div>
             );
         }
@@ -651,9 +698,12 @@ export default function MusicPlayer() {
                         <div className="max-w-2xl mx-auto pt-6 overflow-hidden" ref={lyricsContainerRef}>
                             <div className="flex items-center justify-between mb-6">
                                 <h3 className="text-xl font-bold text-white">Lyrics</h3>
-                                {lyrics && parsedLyrics.length > 0 && (
+                                {lyrics && (
                                     <button
-                                        onClick={() => setIsLyricsFullscreen(true)}
+                                        onClick={() => {
+                                            setIsLyricsFullscreen(true);
+                                            setShowUnsyncedLyrics(true); // Auto-show unsynced lyrics in fullscreen
+                                        }}
                                         className="p-2 text-white hover:text-gray-200"
                                     >
                                         <Maximize2 className="w-5 h-5" />

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Generate ofatifie PWA Icons</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #121212;
+            color: white;
+        }
+        canvas {
+            border: 1px solid #444;
+            margin: 10px;
+        }
+        .icon-container {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        button {
+            background: #B93939;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #a33232;
+        }
+    </style>
+</head>
+<body>
+    <h1>ofatifie PWA Icon Generator</h1>
+    <p>Click the buttons below to download the icons:</p>
+
+    <div class="icon-container">
+        <div>
+            <h3>192x192 Icon</h3>
+            <canvas id="icon192" width="192" height="192"></canvas>
+            <br>
+            <button onclick="downloadIcon('icon192', 'pwa-192x192.png')">Download 192x192</button>
+        </div>
+
+        <div>
+            <h3>512x512 Icon</h3>
+            <canvas id="icon512" width="512" height="512"></canvas>
+            <br>
+            <button onclick="downloadIcon('icon512', 'pwa-512x512.png')">Download 512x512</button>
+        </div>
+    </div>
+
+    <script>
+        // Lucide Music icon SVG path
+        // Path from lucide-react: <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+        function drawMusicNote(ctx, x, y, size) {
+            const scale = size / 24;
+
+            ctx.strokeStyle = '#B93939';
+            ctx.fillStyle = '#B93939';
+            ctx.lineWidth = 2 * scale;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            // Main path: M9 18V5l12-2v13
+            ctx.beginPath();
+            ctx.moveTo(x + (9 * scale), y + (18 * scale));
+            ctx.lineTo(x + (9 * scale), y + (5 * scale));
+            ctx.lineTo(x + (21 * scale), y + (3 * scale));
+            ctx.lineTo(x + (21 * scale), y + (16 * scale));
+            ctx.stroke();
+
+            // First circle: cx="6" cy="18" r="3"
+            ctx.beginPath();
+            ctx.arc(x + (6 * scale), y + (18 * scale), 3 * scale, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Second circle: cx="18" cy="16" r="3"
+            ctx.beginPath();
+            ctx.arc(x + (18 * scale), y + (16 * scale), 3 * scale, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function generateIcon(canvasId, size) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+
+            // Black background
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, size, size);
+
+            // Center the music note
+            const noteSize = size * 0.5; // Note takes 50% of canvas
+            const x = (size - noteSize) / 2;
+            const y = (size - noteSize) / 2;
+
+            drawMusicNote(ctx, x, y, noteSize);
+        }
+
+        function downloadIcon(canvasId, filename) {
+            const canvas = document.getElementById(canvasId);
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        // Generate icons on page load
+        window.onload = function() {
+            generateIcon('icon192', 192);
+            generateIcon('icon512', 512);
+        };
+    </script>
+</body>
+</html>

@@ -4,6 +4,7 @@ import { usePlayer } from '../../context/PlayerContext';
 import { getPlaylist } from '../../lib/music-api';
 import TrackContextMenu from '../TrackContextMenu';
 import type { PlaylistListItem, Playlist, Track } from '../../types';
+import { API_URL } from '../../config';
 
 interface PlaylistSectionProps {
   playlists: PlaylistListItem[];
@@ -39,7 +40,7 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
     const fetchLikedSongs = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:8000/library/liked-songs?skip=0&limit=1000', {
+        const response = await fetch(`${API_URL}/library/liked-songs?skip=0&limit=1000`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -65,7 +66,7 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
   };
 
   const getCoverUrl = (trackId: number) => {
-    return `http://localhost:8000/music/cover/${trackId}`;
+    return `${API_URL}/music/cover/${trackId}`;
   };
 
   const getPlaylistCoverUrl = (playlist: Playlist) => {
@@ -74,7 +75,7 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
       // Normalize path: replace backslashes with forward slashes, ensure leading slash
       const normalizedPath = playlist.cover_path.replace(/\\/g, '/');
       const path = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
-      return `http://localhost:8000${path}`;
+      return `${API_URL}${path}`;
     }
     // Otherwise use first track's cover
     if (playlist.tracks && playlist.tracks.length > 0) {
@@ -87,7 +88,7 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
     const isLiked = likedSongIds.has(trackId);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:8000/library/like/${trackId}`, {
+      const response = await fetch(`${API_URL}/library/like/${trackId}`, {
         method: isLiked ? 'DELETE' : 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -114,7 +115,7 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
   const handleAddToPlaylist = async (trackId: number, playlistId: number) => {
     try {
       const token = localStorage.getItem('token');
-      await fetch(`http://localhost:8000/playlists/${playlistId}/songs`, {
+      await fetch(`${API_URL}/playlists/${playlistId}/songs`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -133,7 +134,7 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
     setIsCreating(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:8000/playlists', {
+      const response = await fetch('${API_URL}/playlists', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -169,7 +170,7 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:8000/playlists/${playlistId}`, {
+      const response = await fetch(`${API_URL}/playlists/${playlistId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -218,7 +219,7 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
     setIsUpdating(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:8000/playlists/${editingPlaylist.id}`, {
+      const response = await fetch(`${API_URL}/playlists/${editingPlaylist.id}`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -266,7 +267,7 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
       const formData = new FormData();
       formData.append('file', coverFile);
 
-      const response = await fetch(`http://localhost:8000/playlists/${editingPlaylist.id}/cover`, {
+      const response = await fetch(`${API_URL}/playlists/${editingPlaylist.id}/cover`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -322,7 +323,7 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
                 if (playlist.cover_path) {
                   const normalizedPath = playlist.cover_path.replace(/\\/g, '/');
                   const path = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
-                  return `http://localhost:8000${path}`;
+                  return `${API_URL}${path}`;
                 }
                 return null;
               })();

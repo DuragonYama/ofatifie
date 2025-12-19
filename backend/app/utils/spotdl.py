@@ -70,12 +70,17 @@ def download_from_spotify(
     ]
     
     try:
-        # Run spotdl
+        # Run spotdl with UTF-8 encoding to handle Unicode characters
+        import os
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
+
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=300
+            timeout=300,
+            env=env
         )
         
         if result.returncode != 0:

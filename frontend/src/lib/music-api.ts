@@ -1,12 +1,13 @@
 import api from './api';
-import type { 
-  Track, 
-  Album, 
-  Playlist, 
-  PlaylistListItem, 
-  LikedSong, 
-  LibraryItemsResponse, 
-  LibraryStats 
+import { API_URL } from '../config';
+import type {
+  Track,
+  Album,
+  Playlist,
+  PlaylistListItem,
+  LikedSong,
+  LibraryItemsResponse,
+  LibraryStats
 } from '../types';
 
 // Get all tracks
@@ -23,12 +24,12 @@ export const getTrack = async (id: number): Promise<Track> => {
 
 // Get track cover URL
 export const getTrackCoverUrl = (trackId: number): string => {
-  return `http://localhost:8000/music/cover/${trackId}`;
+  return `${API_URL}/music/cover/${trackId}`;
 };
 
 // Get track stream URL (with token)
 export const getTrackStreamUrl = (trackId: number, token: string): string => {
-  return `http://localhost:8000/music/stream/${trackId}?token=${token}`;
+  return `${API_URL}/music/stream/${trackId}?token=${token}`;
 };
 
 // Get all albums

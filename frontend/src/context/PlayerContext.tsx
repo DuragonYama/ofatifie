@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useRef, useEffect, type ReactNode } from 'react';
 import type { Track } from '../types';
+import { API_URL } from '../config';
 
 type RepeatMode = 'off' | 'all' | 'one';
 
@@ -80,7 +81,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const response = await fetch('http://localhost:8000/playback/start', {
+      const response = await fetch(`${API_URL}/playback/start`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -108,7 +109,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      await fetch('http://localhost:8000/playback/update', {
+      await fetch(`${API_URL}/playback/update`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -162,6 +163,118 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       stopHeartbeat();
     };
   }, []);
+
+  // 🎵 Media Session API - Update metadata for OS media controls
+  const updateMediaSession = (track: Track) => {
+    if ('mediaSession' in navigator) {
+      try {
+        // Get cover art URL
+        const getCoverUrl = (trackId: number) => {
+          const token = localStorage.getItem('token');
+          return `${API_URL}/music/cover/${trackId}?token=${token}`;
+        };
+
+        const coverUrl = getCoverUrl(track.id);
+
+        // Set metadata with track info
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: track.title,
+          artist: track.artists?.map((a: { name: string }) => a.name).join(', ') || 'Unknown Artist',
+          album: track.album?.name || 'Unknown Album',
+          artwork: [
+            { src: coverUrl, sizes: '96x96', type: 'image/jpeg' },
+            { src: coverUrl, sizes: '128x128', type: 'image/jpeg' },
+            { src: coverUrl, sizes: '192x192', type: 'image/jpeg' },
+            { src: coverUrl, sizes: '256x256', type: 'image/jpeg' },
+            { src: coverUrl, sizes: '384x384', type: 'image/jpeg' },
+            { src: coverUrl, sizes: '512x512', type: 'image/jpeg' },
+          ]
+        });
+      } catch (error) {
+        console.error('Failed to update media session:', error);
+      }
+    }
+  };
+
+  // 🎵 Media Session API - Set up action handlers
+  useEffect(() => {
+    if ('mediaSession' in navigator) {
+      try {
+        // Play action
+        navigator.mediaSession.setActionHandler('play', () => {
+          if (audioRef.current && currentTrack) {
+            audioRef.current.play().catch(err => {
+              console.error('Error playing:', err);
+            });
+            setIsPlaying(true);
+            startHeartbeat();
+          }
+        });
+
+        // Pause action
+        navigator.mediaSession.setActionHandler('pause', () => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+            setIsPlaying(false);
+            stopHeartbeat();
+          }
+        });
+
+        // Next track action
+        navigator.mediaSession.setActionHandler('nexttrack', () => {
+          playNext();
+        });
+
+        // Previous track action
+        navigator.mediaSession.setActionHandler('previoustrack', () => {
+          playPrevious();
+        });
+
+        // Seek backward (optional)
+        navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+          if (audioRef.current) {
+            const seekTime = details.seekOffset || 10;
+            audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - seekTime);
+          }
+        });
+
+        // Seek forward (optional)
+        navigator.mediaSession.setActionHandler('seekforward', (details) => {
+          if (audioRef.current) {
+            const seekTime = details.seekOffset || 10;
+            audioRef.current.currentTime = Math.min(audioRef.current.duration, audioRef.current.currentTime + seekTime);
+          }
+        });
+
+        // Seek to specific position (optional)
+        navigator.mediaSession.setActionHandler('seekto', (details) => {
+          if (audioRef.current && details.seekTime !== undefined) {
+            audioRef.current.currentTime = details.seekTime;
+            setCurrentTime(details.seekTime);
+          }
+        });
+      } catch (error) {
+        console.error('Failed to set media session handlers:', error);
+      }
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if ('mediaSession' in navigator) {
+        try {
+          navigator.mediaSession.setActionHandler('play', null);
+          navigator.mediaSession.setActionHandler('pause', null);
+          navigator.mediaSession.setActionHandler('nexttrack', null);
+          navigator.mediaSession.setActionHandler('previoustrack', null);
+          navigator.mediaSession.setActionHandler('seekbackward', null);
+          navigator.mediaSession.setActionHandler('seekforward', null);
+          navigator.mediaSession.setActionHandler('seekto', null);
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+      }
+    };
+  }, [currentTrack, isPlaying]); // Re-run when currentTrack or isPlaying changes
 
   // Initialize audio element ONCE
   useEffect(() => {
@@ -224,6 +337,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // Set current track
     setCurrentTrack(track);
 
+    // 🎵 Update media session with new track metadata
+    updateMediaSession(track);
+
     // Get token from localStorage
     const token = localStorage.getItem('token');
     
@@ -248,7 +364,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     audio.currentTime = 0;
 
     // Load and play the track with token in URL
-    const audioUrl = `http://localhost:8000/music/stream/${track.id}?token=${token}`;
+    const audioUrl = `${API_URL}/music/stream/${track.id}?token=${token}`;
     audio.src = audioUrl;
     
     // Force to 0 again after setting src

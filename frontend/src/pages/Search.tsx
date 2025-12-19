@@ -6,6 +6,7 @@ import AlbumDetailView from '../components/search/AlbumDetailView';
 import PlaylistDetailView from '../components/search/PlaylistDetailView';
 import BrowseViews from '../components/search/BrowseViews';
 import TrackContextMenu from '../components/TrackContextMenu';
+import { API_URL } from '../config';
 
 // Local types not in main types file
 interface AutocompleteSuggestions {
@@ -117,7 +118,7 @@ useEffect(() => {
         try {
             const token = localStorage.getItem('token');
             const response = await fetch(
-                `http://localhost:8000/search/suggest?query=${encodeURIComponent(query)}&limit=5`,
+                `${API_URL}/search/suggest?query=${encodeURIComponent(query)}&limit=5`,
                 { headers: { 'Authorization': `Bearer ${token}` } }
             );
             
@@ -160,7 +161,7 @@ useEffect(() => {
 
             if (selectedCategory === 'all' || selectedCategory === 'songs') {
                 const tracksResponse = await fetch(
-                    `http://localhost:8000/search/tracks?query=${encodeURIComponent(searchQuery)}&limit=20`,
+                    `${API_URL}/search/tracks?query=${encodeURIComponent(searchQuery)}&limit=20`,
                     { headers: { 'Authorization': `Bearer ${token}` } }
                 );
                 if (tracksResponse.ok) {
@@ -175,7 +176,7 @@ useEffect(() => {
 
             if (selectedCategory === 'all' || selectedCategory === 'albums') {
                 const albumsResponse = await fetch(
-                    `http://localhost:8000/albums?search=${encodeURIComponent(searchQuery)}&limit=20`,
+                    `${API_URL}/albums?search=${encodeURIComponent(searchQuery)}&limit=20`,
                     { headers: { 'Authorization': `Bearer ${token}` } }
                 );
                 if (albumsResponse.ok) {
@@ -242,7 +243,7 @@ useEffect(() => {
             }
             
             const response = await fetch(
-                `http://localhost:8000/music/tracks?skip=${skip}&limit=100&order_by=${encodeURIComponent(orderBy)}`,
+                `${API_URL}/music/tracks?skip=${skip}&limit=100&order_by=${encodeURIComponent(orderBy)}`,
                 { headers: { 'Authorization': `Bearer ${token}` } }
             );
             
@@ -267,7 +268,7 @@ useEffect(() => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:8000/albums?limit=100`, {
+            const response = await fetch(`${API_URL}/albums?limit=100`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (response.ok) {
@@ -285,7 +286,7 @@ useEffect(() => {
         try {
             const token = localStorage.getItem('token');
             // Fetch all tracks and extract unique artists (since /search/artists needs query)
-            const response = await fetch(`http://localhost:8000/music/tracks?skip=0&limit=1000`, {
+            const response = await fetch(`${API_URL}/music/tracks?skip=0&limit=1000`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             
@@ -333,7 +334,7 @@ useEffect(() => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:8000/playlists`, {
+            const response = await fetch(`${API_URL}/playlists`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (response.ok) setPlaylists(await response.json());
@@ -348,7 +349,7 @@ useEffect(() => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:8000/search/genres`, {
+            const response = await fetch(`${API_URL}/search/genres`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (response.ok) {
@@ -366,7 +367,7 @@ useEffect(() => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:8000/playback/history?limit=50`, {
+            const response = await fetch(`${API_URL}/playback/history?limit=50`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             
@@ -374,7 +375,7 @@ useEffect(() => {
                 const data = await response.json();
                 const tracksPromises = data.map(async (item: PlayHistory) => {
                     const trackResponse = await fetch(
-                        `http://localhost:8000/music/tracks/${item.track_id}`,
+                        `${API_URL}/music/tracks/${item.track_id}`,
                         { headers: { 'Authorization': `Bearer ${token}` } }
                     );
                     if (trackResponse.ok) {
@@ -398,7 +399,7 @@ useEffect(() => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:8000/albums/${albumId}`, {
+            const response = await fetch(`${API_URL}/albums/${albumId}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (response.ok) {
@@ -418,7 +419,7 @@ useEffect(() => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:8000/playlists/${playlistId}`, {
+            const response = await fetch(`${API_URL}/playlists/${playlistId}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (response.ok) {
@@ -442,7 +443,7 @@ useEffect(() => {
         try {
             const token = localStorage.getItem('token');
             const response = await fetch(
-                `http://localhost:8000/search/tracks?query=${encodeURIComponent(artistName)}&limit=100`,
+                `${API_URL}/search/tracks?query=${encodeURIComponent(artistName)}&limit=100`,
                 { headers: { 'Authorization': `Bearer ${token}` } }
             );
             
@@ -470,7 +471,7 @@ useEffect(() => {
         try {
             const token = localStorage.getItem('token');
             const response = await fetch(
-                `http://localhost:8000/search/tracks?query=${encodeURIComponent(genreName)}&limit=100`,
+                `${API_URL}/search/tracks?query=${encodeURIComponent(genreName)}&limit=100`,
                 { headers: { 'Authorization': `Bearer ${token}` } }
             );
             if (response.ok) {
@@ -537,7 +538,7 @@ useEffect(() => {
         const fetchLikedSongs = async () => {
             try {
                 const token = localStorage.getItem('token');
-                const res = await fetch(`http://localhost:8000/library/liked-songs`, {
+                const res = await fetch(`${API_URL}/library/liked-songs`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (res.ok) {
@@ -565,7 +566,7 @@ useEffect(() => {
             const isLiked = likedSongIds.has(trackId);
             if (isLiked) {
                 // Unlike
-                const res = await fetch(`http://localhost:8000/library/like/${trackId}`, {
+                const res = await fetch(`${API_URL}/library/like/${trackId}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
@@ -578,7 +579,7 @@ useEffect(() => {
                 }
             } else {
                 // Like
-                const res = await fetch(`http://localhost:8000/library/like/${trackId}`, {
+                const res = await fetch(`${API_URL}/library/like/${trackId}`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
                 });
@@ -595,7 +596,7 @@ useEffect(() => {
         try {
             const token = localStorage.getItem('token');
             // Try adding first
-            const res = await fetch(`http://localhost:8000/playlists/${playlistId}/tracks`, {
+            const res = await fetch(`${API_URL}/playlists/${playlistId}/tracks`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ track_id: trackId })
@@ -606,14 +607,14 @@ useEffect(() => {
                 return true;
             } else if (res.status === 409 || res.status === 400) {
                 // Already exists? Try removing to toggle behavior
-                const del = await fetch(`http://localhost:8000/playlists/${playlistId}/tracks/${trackId}`, {
+                const del = await fetch(`${API_URL}/playlists/${playlistId}/tracks/${trackId}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 return del.ok;
             } else {
                 // unexpected status - attempt delete (toggle)
-                const del = await fetch(`http://localhost:8000/playlists/${playlistId}/tracks/${trackId}`, {
+                const del = await fetch(`${API_URL}/playlists/${playlistId}/tracks/${trackId}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
@@ -633,24 +634,24 @@ useEffect(() => {
     };
 
     const getCoverUrl = (trackId: number) => {
-        return `http://localhost:8000/music/cover/${trackId}`;
+        return `${API_URL}/music/cover/${trackId}`;
     };
 
     const getAlbumCoverUrl = (album: Album) => {
         // Priority 1: Use first_track_id from backend (NEW!)
         if (album.first_track_id) {
-            return `http://localhost:8000/music/cover/${album.first_track_id}`;
+            return `${API_URL}/music/cover/${album.first_track_id}`;
         }
         // Priority 2: If album has tracks in frontend, use first track's cover
         if (album.tracks && album.tracks.length > 0) {
-            return `http://localhost:8000/music/cover/${album.tracks[0].id}`;
+            return `${API_URL}/music/cover/${album.tracks[0].id}`;
         }
         // Priority 3: Try album cover path (usually null)
         if (album.cover_path) {
             if (album.cover_path.startsWith('http')) {
                 return album.cover_path;
             }
-            return `http://localhost:8000${album.cover_path}`;
+            return `${API_URL}${album.cover_path}`;
         }
         return null;
     };

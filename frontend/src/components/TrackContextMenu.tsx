@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { MoreVertical, Plus, Trash2, Heart, Disc3, User, ListPlus, PlayCircle, Check } from 'lucide-react';
 import type { Track, Playlist } from '../types';
+import { API_URL } from '../config';
 
 interface TrackContextMenuProps {
     track: Track;
@@ -128,7 +129,7 @@ export default function TrackContextMenu({
             const token = localStorage.getItem('token');
             
             // Fetch all playlists
-            const playlistsResponse = await fetch('http://localhost:8000/playlists', {
+            const playlistsResponse = await fetch('${API_URL}/playlists', {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -146,7 +147,7 @@ export default function TrackContextMenu({
             const playlistsWithStatus = await Promise.all(
                 playlistsData.map(async (playlist) => {
                     try {
-                        const detailResponse = await fetch(`http://localhost:8000/playlists/${playlist.id}`, {
+                        const detailResponse = await fetch(`${API_URL}/playlists/${playlist.id}`, {
                             headers: {
                                 'Authorization': `Bearer ${token}`
                             }
@@ -187,7 +188,7 @@ export default function TrackContextMenu({
         try {
             if (playlist.containsTrack) {
                 // Remove from playlist
-                const response = await fetch(`http://localhost:8000/playlists/${playlist.id}/songs/${track.id}`, {
+                const response = await fetch(`${API_URL}/playlists/${playlist.id}/songs/${track.id}`, {
                     method: 'DELETE',
                     headers: {
                         'Authorization': `Bearer ${token}`
@@ -202,7 +203,7 @@ export default function TrackContextMenu({
                 }
             } else {
                 // Add to playlist
-                const response = await fetch(`http://localhost:8000/playlists/${playlist.id}/songs`, {
+                const response = await fetch(`${API_URL}/playlists/${playlist.id}/songs`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${token}`,

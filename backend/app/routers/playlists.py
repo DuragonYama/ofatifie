@@ -2,7 +2,7 @@
 Playlist management endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import or_
 from typing import List
 from pathlib import Path
@@ -143,28 +143,26 @@ def get_playlist_details(
             detail="You don't have access to this playlist"
         )
     
-    # Get tracks
-    playlist_tracks = db.query(PlaylistSong, Track).join(
-        Track, PlaylistSong.track_id == Track.id
-    ).filter(
+    # Get tracks with eager loading to avoid N+1 queries
+    playlist_tracks = db.query(PlaylistSong).filter(
         PlaylistSong.playlist_id == playlist_id
+    ).options(
+        selectinload(PlaylistSong.track).selectinload(Track.artists)
     ).order_by(PlaylistSong.position).all()
-    
+
     tracks_info = []
-    for ps, track in playlist_tracks:
-        # Get artists
-        artists = db.query(Artist).join(
-            TrackArtist, TrackArtist.artist_id == Artist.id
-        ).filter(
-            TrackArtist.track_id == track.id
-        ).all()
-        
+    for ps in playlist_tracks:
+        track = ps.track
+        # Extract artist names from the loaded relationship
+        # track.artists is a direct relationship to Artist objects
+        artist_names = [artist.name for artist in track.artists]
+
         tracks_info.append(PlaylistTrackInfo(
             id=ps.id,
             track_id=track.id,
             title=track.title,
             duration=track.duration,
-            artists=[artist.name for artist in artists],
+            artists=artist_names,
             cover_path=track.cover_path,
             position=ps.position,
             added_by_id=ps.added_by_id,

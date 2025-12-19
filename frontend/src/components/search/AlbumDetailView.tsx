@@ -3,6 +3,7 @@ import { Play, Pause, Disc3, MoreVertical, Plus, Trash2 } from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
 import TrackContextMenu from '../TrackContextMenu';
 import type { Album, Track } from '../../types';
+import { API_URL } from '../../config';
 
 interface AlbumDetailViewProps {
     album: Album;
@@ -20,7 +21,7 @@ export default function AlbumDetailView({ album }: AlbumDetailViewProps) {
         const checkLibraryStatus = async () => {
             try {
                 const token = localStorage.getItem('token');
-                const response = await fetch('http://localhost:8000/library/items?skip=0&limit=1000&type=albums', {
+                const response = await fetch('${API_URL}/library/items?skip=0&limit=1000&type=albums', {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
@@ -46,7 +47,7 @@ export default function AlbumDetailView({ album }: AlbumDetailViewProps) {
         const fetchLikedSongs = async () => {
             try {
                 const token = localStorage.getItem('token');
-                const response = await fetch('http://localhost:8000/library/liked-songs?skip=0&limit=1000', {
+                const response = await fetch('${API_URL}/library/liked-songs?skip=0&limit=1000', {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
@@ -70,14 +71,14 @@ export default function AlbumDetailView({ album }: AlbumDetailViewProps) {
     };
 
     const getCoverUrl = (trackId: number) => {
-        return `http://localhost:8000/music/cover/${trackId}`;
+        return `${API_URL}/music/cover/${trackId}`;
     };
 
     const handleToggleLike = async (trackId: number) => {
         const isLiked = likedSongIds.has(trackId);
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:8000/library/like/${trackId}`, {
+            const response = await fetch(`${API_URL}/library/like/${trackId}`, {
                 method: isLiked ? 'DELETE' : 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -104,7 +105,7 @@ export default function AlbumDetailView({ album }: AlbumDetailViewProps) {
     const handleAddToPlaylist = async (trackId: number, playlistId: number) => {
         try {
             const token = localStorage.getItem('token');
-            await fetch(`http://localhost:8000/playlists/${playlistId}/songs`, {
+            await fetch(`${API_URL}/playlists/${playlistId}/songs`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -121,7 +122,7 @@ export default function AlbumDetailView({ album }: AlbumDetailViewProps) {
         try {
             const token = localStorage.getItem('token');
             const method = isInLibrary ? 'DELETE' : 'POST';
-            const response = await fetch(`http://localhost:8000/library/albums/${album.id}`, {
+            const response = await fetch(`${API_URL}/library/albums/${album.id}`, {
                 method,
                 headers: {
                     'Authorization': `Bearer ${token}`

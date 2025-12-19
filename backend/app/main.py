@@ -2,11 +2,29 @@
 Main FastAPI application
 ofatifie - Music Streaming App Backend
 """
-from fastapi import FastAPI
+import logging
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
-from app.routers import tracks, auth, admin, music, playback, albums, library, search, playlists, tags, lyrics
+from app.routers import tracks, auth, admin, music, playback, albums, library, search, playlists, tags, lyrics, downloads
+
+# Configure logging filter to exclude noisy polling endpoints
+class EndpointFilter(logging.Filter):
+    """Filter out health check and polling endpoints from access logs"""
+    def filter(self, record: logging.LogRecord) -> bool:
+        # List of endpoints to exclude from logs (polling endpoints that spam logs)
+        excluded_endpoints = [
+            "/downloads/my-jobs",
+            "/downloads/queue-info",
+            "/health",
+            "/playback/now-playing"
+        ]
+        # Check if any excluded endpoint is in the log message
+        return not any(endpoint in record.getMessage() for endpoint in excluded_endpoints)
+
+# Apply filter to uvicorn access logger
+logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
 
 settings = get_settings()
 
@@ -40,6 +58,7 @@ app.include_router(search.router)
 app.include_router(playlists.router)
 app.include_router(tags.router)
 app.include_router(lyrics.router)
+app.include_router(downloads.router)
 
 @app.get("/")
 def root():

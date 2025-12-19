@@ -2,7 +2,7 @@
 User library management (liked songs, saved albums)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
 from datetime import datetime
 
@@ -218,59 +218,55 @@ def get_library_items(
     
     result = []
     
-    # Get liked songs
+    # Get liked songs with eager loading to avoid N+1 queries
     if item_type in [None, 'songs']:
-        liked_songs = db.query(LikedSong, Track).join(
-            Track, LikedSong.track_id == Track.id
-        ).filter(
+        liked_songs = db.query(LikedSong).filter(
             LikedSong.user_id == current_user.id
+        ).options(
+            selectinload(LikedSong.track).selectinload(Track.artists)
         ).order_by(
             LikedSong.liked_at.desc()
         ).all()
-        
-        for liked, track in liked_songs:
-            # Get artists for this track
-            artists = db.query(Artist).join(
-                TrackArtist, TrackArtist.artist_id == Artist.id
-            ).filter(
-                TrackArtist.track_id == track.id
-            ).all()
-            
+
+        for liked in liked_songs:
+            track = liked.track
+            # Extract artist names from loaded relationship
+            # track.artists is a direct relationship to Artist objects
+            artist_names = [artist.name for artist in track.artists]
+
             result.append({
                 'type': 'song',
                 'id': track.id,
                 'title': track.title,
-                'artists': [artist.name for artist in artists],
+                'artists': artist_names,
                 'duration': track.duration,
                 'cover_path': track.cover_path,
                 'added_at': liked.liked_at,
                 'play_count': track.play_count
             })
     
-    # Get saved albums
+    # Get saved albums with eager loading to avoid N+1 queries
     if item_type in [None, 'albums']:
         saved_albums = db.query(UserLibraryItem, Album).join(
             Album, UserLibraryItem.item_id == Album.id
         ).filter(
             UserLibraryItem.user_id == current_user.id,
             UserLibraryItem.item_type == 'album'
+        ).options(
+            selectinload(Album.artist_associations)
         ).order_by(
             UserLibraryItem.added_at.desc()
         ).all()
-        
+
         for lib_item, album in saved_albums:
-            # Get artists for this album
-            artists = db.query(Artist).join(
-                AlbumArtist, AlbumArtist.artist_id == Artist.id
-            ).filter(
-                AlbumArtist.album_id == album.id
-            ).all()
-            
+            # Extract artist names from loaded relationship
+            artist_names = [aa.artist.name for aa in album.artist_associations]
+
             result.append({
                 'type': 'album',
                 'id': album.id,
                 'title': album.name,
-                'artists': [artist.name for artist in artists],
+                'artists': artist_names,
                 'release_year': album.release_year,
                 'cover_path': album.cover_path,
                 'added_at': lib_item.added_at,

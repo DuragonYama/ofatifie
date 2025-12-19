@@ -3,6 +3,7 @@ import { Play, Pause, ListMusic } from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
 import TrackContextMenu from '../TrackContextMenu';
 import type { Track, Playlist, Artist } from '../../types';
+import { API_URL } from '../../config';
 
 interface PlaylistDetailViewProps {
     playlist: Playlist;
@@ -17,7 +18,7 @@ export default function PlaylistDetailView({ playlist }: PlaylistDetailViewProps
         const fetchLikedSongs = async () => {
             try {
                 const token = localStorage.getItem('token');
-                const response = await fetch('http://localhost:8000/library/liked-songs?skip=0&limit=1000', {
+                const response = await fetch('${API_URL}/library/liked-songs?skip=0&limit=1000', {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
@@ -41,14 +42,14 @@ export default function PlaylistDetailView({ playlist }: PlaylistDetailViewProps
     };
 
     const getCoverUrl = (trackId: number) => {
-        return `http://localhost:8000/music/cover/${trackId}`;
+        return `${API_URL}/music/cover/${trackId}`;
     };
 
     const handleToggleLike = async (trackId: number) => {
         const isLiked = likedSongIds.has(trackId);
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:8000/library/like/${trackId}`, {
+            const response = await fetch(`${API_URL}/library/like/${trackId}`, {
                 method: isLiked ? 'DELETE' : 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -75,7 +76,7 @@ export default function PlaylistDetailView({ playlist }: PlaylistDetailViewProps
     const handleAddToPlaylist = async (trackId: number, playlistId: number) => {
         try {
             const token = localStorage.getItem('token');
-            await fetch(`http://localhost:8000/playlists/${playlistId}/songs`, {
+            await fetch(`${API_URL}/playlists/${playlistId}/songs`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,

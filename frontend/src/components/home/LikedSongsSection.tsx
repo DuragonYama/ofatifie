@@ -3,6 +3,7 @@ import { Heart, ArrowLeft, Play, Pause } from 'lucide-react';
 import { usePlayer } from '../../context/PlayerContext';
 import TrackContextMenu from '../TrackContextMenu';
 import type { LibraryStats, Track } from '../../types';
+import { API_URL } from '../../config';
 
 interface LikedSongsSectionProps {
   stats: LibraryStats | null;
@@ -21,7 +22,7 @@ export default function LikedSongsSection({ stats, albumCount, playlistCount }: 
       const token = localStorage.getItem('token');
       
       // Fetch with pagination - load 500 songs at once
-      const response = await fetch('http://localhost:8000/library/liked-songs?skip=0&limit=500', {
+      const response = await fetch(`${API_URL}/library/liked-songs?skip=0&limit=500`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -70,7 +71,7 @@ export default function LikedSongsSection({ stats, albumCount, playlistCount }: 
   const handleToggleLike = async (trackId: number) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:8000/library/like/${trackId}`, {
+      const response = await fetch(`${API_URL}/library/like/${trackId}`, {
         method: 'DELETE', // Always DELETE since we're in liked songs
         headers: {
           'Authorization': `Bearer ${token}`
@@ -93,7 +94,7 @@ export default function LikedSongsSection({ stats, albumCount, playlistCount }: 
   const handleAddToPlaylist = async (trackId: number, playlistId: number) => {
     try {
       const token = localStorage.getItem('token');
-      await fetch(`http://localhost:8000/playlists/${playlistId}/songs`, {
+      await fetch(`${API_URL}/playlists/${playlistId}/songs`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

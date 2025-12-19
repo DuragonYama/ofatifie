@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models.music import Track, Lyrics
 from pathlib import Path
 import shutil
+import asyncio
 
 from app.database import get_db
 from app.auth import get_current_user
@@ -70,9 +71,13 @@ async def upload_track(
     temp_path = upload_dir / f"temp_{file.filename}"
     
     try:
-        # Save uploaded file temporarily
-        with temp_path.open("wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # Save uploaded file temporarily (async to avoid blocking)
+        def _save_upload_file(file_obj, dest_path):
+            """Helper to save uploaded file in thread pool"""
+            with dest_path.open("wb") as buffer:
+                shutil.copyfileobj(file_obj, buffer)
+
+        await asyncio.to_thread(_save_upload_file, file.file, temp_path)
         
         # Get file size
         file_size_mb = get_file_size_mb(str(temp_path))
@@ -85,8 +90,8 @@ async def upload_track(
                 detail=f"Storage quota exceeded. Used: {current_user.storage_used_mb}MB / {current_user.storage_quota_mb}MB"
             )
         
-        # Calculate file hash for duplicate detection
-        file_hash = calculate_file_hash(str(temp_path))
+        # Calculate file hash for duplicate detection (async to avoid blocking)
+        file_hash = await asyncio.to_thread(calculate_file_hash, str(temp_path))
         
         # Check if file already exists
         existing_track = db.query(Track).filter(Track.song_hash == file_hash).first()
@@ -97,8 +102,8 @@ async def upload_track(
                 detail=f"This file already exists: {existing_track.title}"
             )
         
-        # Extract metadata
-        metadata = extract_metadata(str(temp_path))
+        # Extract metadata (async to avoid blocking)
+        metadata = await asyncio.to_thread(extract_metadata, str(temp_path))
         
         # Use filename as title if metadata doesn't have one
         title = metadata.get('title') or Path(file.filename).stem
@@ -147,7 +152,7 @@ async def upload_track(
         cover_filename = f"cover_{new_track.id}.jpg"
         cover_path = covers_dir / cover_filename
         
-        extracted_cover = extract_cover_art(str(final_path), str(cover_path))
+        extracted_cover = await asyncio.to_thread(extract_cover_art, str(final_path), str(cover_path))
         if extracted_cover:
             new_track.cover_path = str(cover_path)
             db.commit()
@@ -158,13 +163,13 @@ async def upload_track(
         if global_tag_id:
             apply_global_tag_to_track(db, new_track.id, global_tag_id, current_user.id)
         
-        # Auto-fetch lyrics (silent fail - doesn't block upload)
+        # Auto-fetch lyrics (silent fail - doesn't block upload, runs in thread pool)
         try:
             from app.utils.lyrics_fetcher import save_lyrics_for_track
             # Explicitly load relationships by accessing them
             _ = new_track.artists
             _ = new_track.album
-            save_lyrics_for_track(db, new_track)
+            await asyncio.to_thread(save_lyrics_for_track, db, new_track)
         except Exception as e:
             # Log but don't fail the upload
             import logging
@@ -419,22 +424,31 @@ async def download_from_spotify(
     temp_dir.mkdir(parents=True, exist_ok=True)
     
     try:
-        # Get metadata using spotdl with verbose output
+        # Get metadata using spotdl with verbose output (Windows-compatible async)
         logger.info("Running spotdl command...")
-        result = subprocess.run(
+        import subprocess
+        import os
+
+        # Set UTF-8 encoding for subprocess to handle Unicode characters
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
+
+        result = await asyncio.to_thread(
+            subprocess.run,
             ['spotdl', spotify_url, '--output', str(temp_dir)],
             capture_output=True,
             text=True,
-            timeout=300
+            timeout=300,
+            env=env
         )
-        
+
         # Log spotdl output
         logger.info(f"spotdl return code: {result.returncode}")
         if result.stdout:
             logger.info(f"spotdl stdout:\n{result.stdout}")
         if result.stderr:
             logger.warning(f"spotdl stderr:\n{result.stderr}")
-        
+
         if result.returncode != 0:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -452,18 +466,21 @@ async def download_from_spotify(
             # For now, let's use a simple approach with the URL
             try:
                 # Get playlist name from spotdl's output directory structure
-                # or extract from metadata
-                playlist_result = subprocess.run(
+                # or extract from metadata (Windows-compatible async)
+                import subprocess
+                await asyncio.to_thread(
+                    subprocess.run,
                     ['spotdl', spotify_url, '--save-file', str(temp_dir / 'playlist_info.json'), '--format', 'json'],
                     capture_output=True,
                     text=True,
-                    timeout=60
+                    timeout=60,
+                    env=env
                 )
-                
+
                 # Parse playlist name from URL as fallback
                 playlist_name = spotify_url.split('/playlist/')[-1].split('?')[0]
                 playlist_name = f"Spotify Playlist {playlist_name[:8]}"  # Fallback name
-                
+
             except:
                 playlist_name = "Imported Spotify Playlist"
             
@@ -628,7 +645,7 @@ async def download_from_spotify(
                 cover_filename = f"cover_{new_track.id}.jpg"
                 cover_path = covers_dir / cover_filename
                 
-                extracted_cover = extract_cover_art(str(final_path), str(cover_path))
+                extracted_cover = await asyncio.to_thread(extract_cover_art, str(final_path), str(cover_path))
                 if extracted_cover:
                     new_track.cover_path = str(cover_path)
                     logger.info(f"  -> Cover art extracted")
@@ -874,18 +891,20 @@ async def download_from_youtube(
             command.insert(1, '--yes-playlist')
         else:
             command.insert(1, '--no-playlist')
-        
-        result = subprocess.run(
+
+        # Run yt-dlp asynchronously (non-blocking) using thread pool for Windows compatibility
+        result = await asyncio.to_thread(
+            subprocess.run,
             command,
             capture_output=True,
             text=True,
-            timeout=300
+            timeout=600
         )
-        
+
         if result.returncode != 0:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"yt-dlp failed: {result.stderr}"
+                detail=f"yt-dlp failed: {result.stderr if result.stderr else 'Unknown error'}"
             )
         
         # Get playlist name if it's a playlist
@@ -893,21 +912,22 @@ async def download_from_youtube(
         playlist_name = None
         
         if is_playlist:
-            # Extract playlist title using yt-dlp
+            # Extract playlist title using yt-dlp (async with thread pool for Windows compatibility)
             try:
-                playlist_info_result = subprocess.run(
+                result = await asyncio.to_thread(
+                    subprocess.run,
                     ['yt-dlp', '--dump-json', '--playlist-items', '1', youtube_url],
                     capture_output=True,
                     text=True,
                     timeout=30
                 )
-                
-                if playlist_info_result.returncode == 0:
-                    info = json.loads(playlist_info_result.stdout.split('\n')[0])
+
+                if result.returncode == 0 and result.stdout:
+                    info = json.loads(result.stdout.split('\n')[0])
                     playlist_name = info.get('playlist_title', 'YouTube Playlist')
                 else:
                     playlist_name = "YouTube Playlist"
-                    
+
             except:
                 playlist_name = "YouTube Playlist"
             

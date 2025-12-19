@@ -31,29 +31,28 @@ def list_albums(
     - ✅ NEW: Includes first_track_id for cover images
     """
     query = db.query(Album).filter(Album.deleted_at.is_(None))
-    
+
     # Search filter
     if search:
         query = query.filter(Album.name.ilike(f"%{search}%"))
-    
-    albums = query.order_by(Album.name).offset(skip).limit(limit).all()
-    
+
+    # Use eager loading to avoid N+1 queries
+    albums = query.options(
+        selectinload(Album.artist_associations),
+        selectinload(Album.tracks)
+    ).order_by(Album.name).offset(skip).limit(limit).all()
+
     # Add artist names and first track ID for cover
     result = []
     for album in albums:
-        # Get artists for this album
-        artists = db.query(Artist).join(
-            AlbumArtist, AlbumArtist.artist_id == Artist.id
-        ).filter(
-            AlbumArtist.album_id == album.id
-        ).order_by(AlbumArtist.artist_order).all()
-        
-        # ✅ NEW: Get first track ID for cover image
-        first_track = db.query(Track).filter(
-            Track.album_id == album.id,
-            Track.deleted_at.is_(None)
-        ).order_by(Track.track_number).first()
-        
+        # Extract artist names from loaded relationship
+        artists = sorted(album.artist_associations, key=lambda aa: aa.artist_order)
+        artist_names = [aa.artist.name for aa in artists]
+
+        # Get first track ID for cover image from loaded relationship
+        non_deleted_tracks = [t for t in album.tracks if t.deleted_at is None]
+        first_track = sorted(non_deleted_tracks, key=lambda t: t.track_number or 0)[0] if non_deleted_tracks else None
+
         # Build dict with all fields including first_track_id
         album_dict = {
             "id": album.id,
@@ -62,10 +61,10 @@ def list_albums(
             "genre": album.genre,
             "cover_path": album.cover_path,
             "total_tracks": album.total_tracks,
-            "artists": [artist.name for artist in artists],
+            "artists": artist_names,
             "first_track_id": first_track.id if first_track else None
         }
-        
+
         result.append(AlbumWithArtists(**album_dict))
     
     return result
@@ -137,25 +136,24 @@ def search_albums(
     - Returns up to 20 results
     - ✅ NEW: Includes first_track_id for cover images
     """
+    # Use eager loading to avoid N+1 queries
     albums = db.query(Album).filter(
         Album.name.ilike(f"%{query}%"),
         Album.deleted_at.is_(None)
+    ).options(
+        selectinload(Album.artist_associations),
+        selectinload(Album.tracks)
     ).limit(limit).all()
-    
+
     result = []
     for album in albums:
-        artists = db.query(Artist).join(
-            AlbumArtist, AlbumArtist.artist_id == Artist.id
-        ).filter(
-            AlbumArtist.album_id == album.id
-        ).all()
-        
-        # ✅ NEW: Get first track ID for cover image
-        first_track = db.query(Track).filter(
-            Track.album_id == album.id,
-            Track.deleted_at.is_(None)
-        ).order_by(Track.track_number).first()
-        
+        # Extract artist names from loaded relationship
+        artist_names = [aa.artist.name for aa in album.artist_associations]
+
+        # Get first track ID for cover image from loaded relationship
+        non_deleted_tracks = [t for t in album.tracks if t.deleted_at is None]
+        first_track = sorted(non_deleted_tracks, key=lambda t: t.track_number or 0)[0] if non_deleted_tracks else None
+
         # Build dict with all fields including first_track_id
         album_dict = {
             "id": album.id,
@@ -164,10 +162,10 @@ def search_albums(
             "genre": album.genre,
             "cover_path": album.cover_path,
             "total_tracks": album.total_tracks,
-            "artists": [artist.name for artist in artists],
+            "artists": artist_names,
             "first_track_id": first_track.id if first_track else None
         }
-        
+
         result.append(AlbumWithArtists(**album_dict))
     
     return result

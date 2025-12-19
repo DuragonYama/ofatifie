@@ -38,7 +38,7 @@ def get_lyrics(
 
 
 @router.post("/track/{track_id}/fetch")
-def fetch_lyrics(
+async def fetch_lyrics(
     track_id: int,
     request: LyricsFetchRequest,
     current_user: User = Depends(get_current_user),
@@ -46,29 +46,30 @@ def fetch_lyrics(
 ):
     """
     Fetch lyrics from a specific source (lrclib or genius)
-    
+
     If lyrics already exist, they will be replaced with new ones
     """
+    import asyncio
     from app.config import get_settings  # ← ADD THIS
     from sqlalchemy.orm import joinedload
     from app.models.music import TrackArtist
-    
+
     settings = get_settings()  # ← ADD THIS
-    
+
     # Check if track exists and load relationships
     track = db.query(Track).options(
         joinedload(Track.artists).joinedload(TrackArtist.artist),
         joinedload(Track.album)
     ).filter(Track.id == track_id, Track.deleted_at.is_(None)).first()
-    
+
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
-    
-    # Fetch lyrics based on source
+
+    # Fetch lyrics based on source (async to avoid blocking)
     if request.source == "lrclib":
-        lyrics_data = fetch_from_lrclib(track)
+        lyrics_data = await asyncio.to_thread(fetch_from_lrclib, track)
     elif request.source == "genius":
-        lyrics_data = fetch_from_genius(track, settings.genius_access_token)  # ← ADD TOKEN HERE!
+        lyrics_data = await asyncio.to_thread(fetch_from_genius, track, settings.genius_access_token)
     else:
         raise HTTPException(status_code=400, detail="Invalid source. Use 'lrclib' or 'genius'")
     
@@ -104,23 +105,25 @@ def fetch_lyrics(
 
 
 @router.post("/track/{track_id}/fetch/auto")
-def fetch_lyrics_auto_endpoint(
+async def fetch_lyrics_auto_endpoint(
     track_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Automatically fetch lyrics from all available sources
-    
+
     Tries lrclib first, then Genius as fallback
     """
+    import asyncio
+
     # Check if track exists
     track = db.query(Track).filter(Track.id == track_id, Track.deleted_at.is_(None)).first()
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
-    
-    # Try auto-fetch
-    lyrics_data = fetch_lyrics_auto(track)
+
+    # Try auto-fetch (async to avoid blocking)
+    lyrics_data = await asyncio.to_thread(fetch_lyrics_auto, track)
     
     if not lyrics_data:
         raise HTTPException(status_code=404, detail="Lyrics not found from any source")
@@ -265,34 +268,35 @@ def test_genius_token(
         "token_length": len(settings.genius_access_token) if settings.genius_access_token else 0
     }
 @router.get("/debug-genius/{track_id}")
-def debug_genius_fetch(
+async def debug_genius_fetch(
     track_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Debug Genius API fetch"""
+    import asyncio
     from app.utils.lyrics_fetcher import fetch_from_genius
     from app.config import get_settings
     from sqlalchemy.orm import joinedload
     from app.models.music import TrackArtist  # Import this!
-    
+
     settings = get_settings()
-    
+
     # Get track with relationships
     track = db.query(Track).options(
         joinedload(Track.artists).joinedload(TrackArtist.artist),  # ← Fixed!
         joinedload(Track.album)
     ).filter(Track.id == track_id).first()
-    
+
     if not track:
         return {"error": "Track not found"}
-    
+
     # Get track info
     title = track.title
     artist_name = track.artists[0].artist.name if track.artists else "Unknown"
-    
-    # Try to fetch
-    result = fetch_from_genius(track, settings.genius_access_token)
+
+    # Try to fetch (async to avoid blocking)
+    result = await asyncio.to_thread(fetch_from_genius, track, settings.genius_access_token)
     
     return {
         "track_id": track_id,
