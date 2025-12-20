@@ -25,7 +25,7 @@ def fetch_from_lrclib(track: Track) -> Optional[Dict[str, Any]]:
     try:
         # Get track info
         title = track.title
-        artist_name = track.artists[0].artist.name if track.artists else "Unknown"
+        artist_name = track.artists[0].name if track.artists else "Unknown"
         album_name = track.album.name if track.album else ""
         duration = track.duration  # in seconds
         
@@ -96,7 +96,7 @@ def fetch_from_genius(track: Track, genius_access_token: Optional[str] = None) -
         
         # Get track info
         title = track.title
-        artist_name = track.artists[0].artist.name if track.artists else "Unknown"
+        artist_name = track.artists[0].name if track.artists else "Unknown"
         
         logger.info(f"Fetching lyrics from Genius for: {artist_name} - {title}")
         
