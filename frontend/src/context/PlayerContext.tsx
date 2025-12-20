@@ -248,27 +248,43 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
         // Seek to specific position (for lock screen scrubbing)
         navigator.mediaSession.setActionHandler('seekto', (details) => {
-          if (audioRef.current && details.seekTime !== undefined) {
-            const seekTime = details.seekTime;
+          if (!audioRef.current || details.seekTime === undefined) return;
 
-            // Validate seek time is within bounds
-            if (seekTime >= 0 && seekTime <= (audioRef.current.duration || duration)) {
-              audioRef.current.currentTime = seekTime;
-              setCurrentTime(seekTime);
-              console.log(`🎵 Seeked to: ${seekTime.toFixed(1)}s`);
+          const seekTime = details.seekTime;
 
-              // 🍎 iOS Fix: Update position state immediately after seek
-              if ('setPositionState' in navigator.mediaSession) {
-                try {
-                  navigator.mediaSession.setPositionState({
-                    duration: audioRef.current.duration || duration,
-                    playbackRate: 1.0,
-                    position: seekTime
-                  });
-                } catch (error) {
-                  console.error('Failed to update position after seek:', error);
-                }
-              }
+          // Validate seek time is a valid number
+          if (isNaN(seekTime) || !isFinite(seekTime)) {
+            console.error('❌ Invalid seek time:', seekTime);
+            return;
+          }
+
+          // Get current duration (prefer audio element, fallback to state)
+          const currentDuration = audioRef.current.duration || duration;
+
+          // Validate seek time is within valid range [0, duration]
+          if (seekTime < 0 || seekTime > currentDuration) {
+            console.error('❌ Seek time out of range:', seekTime, 'duration:', currentDuration);
+            return;
+          }
+
+          // Perform seek
+          audioRef.current.currentTime = seekTime;
+          setCurrentTime(seekTime);
+          console.log(`🎵 Seeked to: ${seekTime.toFixed(1)}s`);
+
+          // Update position state immediately after seek
+          if ('setPositionState' in navigator.mediaSession) {
+            try {
+              // Apply same safety margin as regular updates
+              const safeSeekPosition = seekTime >= currentDuration ? currentDuration - 0.1 : seekTime;
+
+              navigator.mediaSession.setPositionState({
+                duration: currentDuration,
+                playbackRate: 1.0,
+                position: safeSeekPosition
+              });
+            } catch (error) {
+              console.error('❌ Failed to update position after seek:', error);
             }
           }
         });
@@ -324,26 +340,34 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // Function to update position state
     const updatePositionState = () => {
       try {
-        // Get current position from audio element (more accurate than React state)
-        const currentPosition = audioRef.current?.currentTime || currentTime;
+        // Get current position from audio element directly (most accurate)
+        const currentPosition = audioRef.current?.currentTime || 0;
 
         // Validate position
         if (isNaN(currentPosition) || !isFinite(currentPosition)) {
-          console.log('⚠️ Invalid position:', currentPosition);
+          console.error('❌ Invalid currentPosition:', currentPosition);
           return;
         }
 
-        // Ensure position doesn't exceed duration
-        const validPosition = Math.min(currentPosition, duration);
+        // CRITICAL: Clamp position to valid range [0, duration]
+        // Chrome Android shows 100% if position > duration
+        const validPosition = Math.max(0, Math.min(currentPosition, duration));
+
+        // CRITICAL: Ensure we never set position >= duration
+        // Chrome Android interprets position === duration as "ended" and shows 100%
+        // Subtract small margin to prevent this
+        const safePosition = validPosition >= duration ? duration - 0.1 : validPosition;
 
         // Update Media Session position state
         navigator.mediaSession.setPositionState({
           duration: duration,
           playbackRate: 1.0,
-          position: validPosition
+          position: safePosition
         });
 
-        console.log(`🎵 Position state: ${validPosition.toFixed(1)}s / ${duration.toFixed(1)}s`);
+        // Debug log with percentage
+        const percentage = ((safePosition / duration) * 100).toFixed(1);
+        console.log(`🎵 Position: ${safePosition.toFixed(1)}s / ${duration.toFixed(1)}s (${percentage}%)`);
       } catch (error) {
         console.error('❌ Failed to set position state:', error);
       }
