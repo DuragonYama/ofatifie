@@ -93,7 +93,7 @@ export const unlikeTrack = async (trackId: number): Promise<void> => {
 export const getLibraryItems = async (
   skip = 0,
   limit = 50,
-  itemType?: 'album' | 'playlist'
+  itemType?: 'albums' | 'playlist'
 ): Promise<LibraryItemsResponse> => {
   const response = await api.get('/library/items', {
     params: { skip, limit, item_type: itemType }
