@@ -52,13 +52,12 @@ async def fetch_lyrics(
     import asyncio
     from app.config import get_settings  # ← ADD THIS
     from sqlalchemy.orm import joinedload
-    from app.models.music import TrackArtist
 
     settings = get_settings()  # ← ADD THIS
 
     # Check if track exists and load relationships
     track = db.query(Track).options(
-        joinedload(Track.artists).joinedload(TrackArtist.artist),
+        joinedload(Track.artists),
         joinedload(Track.album)
     ).filter(Track.id == track_id, Track.deleted_at.is_(None)).first()
 
@@ -278,13 +277,12 @@ async def debug_genius_fetch(
     from app.utils.lyrics_fetcher import fetch_from_genius
     from app.config import get_settings
     from sqlalchemy.orm import joinedload
-    from app.models.music import TrackArtist  # Import this!
 
     settings = get_settings()
 
     # Get track with relationships
     track = db.query(Track).options(
-        joinedload(Track.artists).joinedload(TrackArtist.artist),  # ← Fixed!
+        joinedload(Track.artists),
         joinedload(Track.album)
     ).filter(Track.id == track_id).first()
 
@@ -293,7 +291,7 @@ async def debug_genius_fetch(
 
     # Get track info
     title = track.title
-    artist_name = track.artists[0].artist.name if track.artists else "Unknown"
+    artist_name = track.artists[0].name if track.artists else "Unknown"
 
     # Try to fetch (async to avoid blocking)
     result = await asyncio.to_thread(fetch_from_genius, track, settings.genius_access_token)
