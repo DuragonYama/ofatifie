@@ -417,7 +417,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     audio.src = audioUrl;
 
     // 🍎 iOS Safari FIX: Fetch duration from backend FIRST (more reliable than audio metadata)
-    fetch(`${API_URL}/duration/${track.id}?token=${token}`)
+    fetch(`${API_URL}/music/duration/${track.id}?token=${token}`)
       .then(response => response.json())
       .then(data => {
         if (data.duration && data.duration > 0) {
