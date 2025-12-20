@@ -117,7 +117,7 @@ export interface LibraryStats {
 }
 
 export interface LibraryItem {
-  type: 'album' | 'playlist';
+  type: 'albums' | 'playlist';
   id: number;
   title: string;
   artists: string[];

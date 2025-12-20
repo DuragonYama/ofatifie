@@ -129,7 +129,7 @@ export default function TrackContextMenu({
             const token = localStorage.getItem('token');
             
             // Fetch all playlists
-            const playlistsResponse = await fetch('${API_URL}/playlists', {
+            const playlistsResponse = await fetch(`${API_URL}/playlists`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }

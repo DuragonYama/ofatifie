@@ -289,7 +289,7 @@ export default function Add() {
                     });
 
                     if (response.ok) {
-                        const data = await response.json();
+                        await response.json();
                         updateDownload(downloadId, 'success', `Successfully uploaded: ${file.name}`);
                     } else {
                         const error = await response.json();

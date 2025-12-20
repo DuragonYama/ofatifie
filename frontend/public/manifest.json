@@ -1,6 +1,6 @@
 {
   "name": "ofatifie",
-  "short_name": "ofa",
+  "short_name": "ofatifie",
   "description": "Your personal music streaming service",
   "start_url": "/",
   "display": "standalone",
