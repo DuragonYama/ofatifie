@@ -134,7 +134,7 @@ export default function PlaylistSection({ playlists, onPlaylistsUpdate }: Playli
     setIsCreating(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('${API_URL}/playlists', {
+      const response = await fetch(`${API_URL}/playlists`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

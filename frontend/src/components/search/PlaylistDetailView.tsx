@@ -18,7 +18,7 @@ export default function PlaylistDetailView({ playlist }: PlaylistDetailViewProps
         const fetchLikedSongs = async () => {
             try {
                 const token = localStorage.getItem('token');
-                const response = await fetch('${API_URL}/library/liked-songs?skip=0&limit=1000', {
+                const response = await fetch(`${API_URL}/library/liked-songs?skip=0&limit=1000`, {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }

@@ -21,7 +21,7 @@ export default function AlbumDetailView({ album }: AlbumDetailViewProps) {
         const checkLibraryStatus = async () => {
             try {
                 const token = localStorage.getItem('token');
-                const response = await fetch('${API_URL}/library/items?skip=0&limit=1000&type=albums', {
+                const response = await fetch(`${API_URL}/library/items?skip=0&limit=1000&type=albums`, {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
@@ -47,7 +47,7 @@ export default function AlbumDetailView({ album }: AlbumDetailViewProps) {
         const fetchLikedSongs = async () => {
             try {
                 const token = localStorage.getItem('token');
-                const response = await fetch('${API_URL}/library/liked-songs?skip=0&limit=1000', {
+                const response = await fetch(`${API_URL}/library/liked-songs?skip=0&limit=1000`, {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
