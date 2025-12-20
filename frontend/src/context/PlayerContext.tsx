@@ -246,11 +246,30 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           }
         });
 
-        // Seek to specific position (optional)
+        // Seek to specific position (for lock screen scrubbing)
         navigator.mediaSession.setActionHandler('seekto', (details) => {
           if (audioRef.current && details.seekTime !== undefined) {
-            audioRef.current.currentTime = details.seekTime;
-            setCurrentTime(details.seekTime);
+            const seekTime = details.seekTime;
+
+            // Validate seek time is within bounds
+            if (seekTime >= 0 && seekTime <= (audioRef.current.duration || duration)) {
+              audioRef.current.currentTime = seekTime;
+              setCurrentTime(seekTime);
+              console.log(`🎵 Seeked to: ${seekTime.toFixed(1)}s`);
+
+              // 🍎 iOS Fix: Update position state immediately after seek
+              if ('setPositionState' in navigator.mediaSession) {
+                try {
+                  navigator.mediaSession.setPositionState({
+                    duration: audioRef.current.duration || duration,
+                    playbackRate: 1.0,
+                    position: seekTime
+                  });
+                } catch (error) {
+                  console.error('Failed to update position after seek:', error);
+                }
+              }
+            }
           }
         });
       } catch (error) {
@@ -287,22 +306,59 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [isPlaying]);
 
-  // 🎵 Media Session API - Update position state (for seek bar in OS controls)
+  // 🎵 Media Session API - Update position state continuously for iOS lock screen seek bar
   useEffect(() => {
-    if ('mediaSession' in navigator && 'setPositionState' in navigator.mediaSession) {
-      try {
-        if (duration && !isNaN(duration) && isFinite(duration) && duration > 0) {
-          navigator.mediaSession.setPositionState({
-            duration: duration,
-            playbackRate: 1.0,
-            position: Math.min(currentTime, duration)
-          });
-        }
-      } catch (error) {
-        console.error('Failed to update media session position state:', error);
-      }
+    // Check if Media Session API is supported
+    if (!('mediaSession' in navigator)) return;
+    if (!('setPositionState' in navigator.mediaSession)) return;
+
+    // Only update if we have valid duration
+    if (!duration || isNaN(duration) || !isFinite(duration) || duration <= 0) {
+      console.log('⚠️ Cannot set position state - invalid duration:', duration);
+      return;
     }
-  }, [currentTime, duration]);
+
+    // Only update while playing (saves battery)
+    if (!isPlaying) return;
+
+    // Function to update position state
+    const updatePositionState = () => {
+      try {
+        // Get current position from audio element (more accurate than React state)
+        const currentPosition = audioRef.current?.currentTime || currentTime;
+
+        // Validate position
+        if (isNaN(currentPosition) || !isFinite(currentPosition)) {
+          console.log('⚠️ Invalid position:', currentPosition);
+          return;
+        }
+
+        // Ensure position doesn't exceed duration
+        const validPosition = Math.min(currentPosition, duration);
+
+        // Update Media Session position state
+        navigator.mediaSession.setPositionState({
+          duration: duration,
+          playbackRate: 1.0,
+          position: validPosition
+        });
+
+        console.log(`🎵 Position state: ${validPosition.toFixed(1)}s / ${duration.toFixed(1)}s`);
+      } catch (error) {
+        console.error('❌ Failed to set position state:', error);
+      }
+    };
+
+    // Update immediately
+    updatePositionState();
+
+    // 🍎 iOS Fix: Update every second while playing (required for lock screen progress bar)
+    const interval = setInterval(updatePositionState, 1000);
+
+    // Cleanup interval on unmount or when dependencies change
+    return () => clearInterval(interval);
+
+  }, [isPlaying, duration, currentTime]);
 
   // Initialize audio element ONCE
   useEffect(() => {
