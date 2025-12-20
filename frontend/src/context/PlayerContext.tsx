@@ -312,8 +312,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // 🍎 iOS Safari CRITICAL: Set crossOrigin for CORS audio streaming
     audio.crossOrigin = 'anonymous';
 
-    // 🍎 iOS Safari: Set preload to metadata to force duration loading
-    audio.preload = 'metadata';
+    // 🍎 iOS Safari FIX: Force preload ENTIRE file to get duration
+    audio.preload = 'auto';  // Changed from 'metadata' to 'auto'
 
     audioRef.current = audio;
 
@@ -322,27 +322,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setCurrentTime(audio.currentTime);
     };
 
-    // Duration change listener - fires when metadata loads
-    const handleLoadedMetadata = () => {
-      console.log('🎵 Metadata loaded - Duration:', audio.duration);
-      if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
+    // 🍎 iOS Safari: Unified duration update function
+    const updateDuration = () => {
+      if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
         setDuration(audio.duration);
-      }
-    };
-
-    // 🍎 iOS Safari fallback: durationchange event (more reliable on iOS)
-    const handleDurationChange = () => {
-      console.log('🎵 Duration changed - Duration:', audio.duration);
-      if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
-        setDuration(audio.duration);
-      }
-    };
-
-    // 🍎 iOS Safari: Additional event to catch when audio can play
-    const handleCanPlay = () => {
-      console.log('🎵 Can play - Duration:', audio.duration);
-      if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
-        setDuration(audio.duration);
+        console.log(`✅ Duration updated: ${audio.duration} seconds (${Math.floor(audio.duration / 60)}:${Math.floor(audio.duration % 60).toString().padStart(2, '0')})`);
+      } else {
+        console.log(`⚠️ Duration not available yet: ${audio.duration}`);
       }
     };
 
@@ -358,17 +344,22 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    // 🍎 iOS Safari: Listen to ALL duration-related events
     audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-    audio.addEventListener('durationchange', handleDurationChange);
-    audio.addEventListener('canplay', handleCanPlay);
+    audio.addEventListener('loadedmetadata', updateDuration);
+    audio.addEventListener('durationchange', updateDuration);
+    audio.addEventListener('loadeddata', updateDuration);
+    audio.addEventListener('canplay', updateDuration);
+    audio.addEventListener('canplaythrough', updateDuration);
     audio.addEventListener('ended', handleEnded);
 
     return () => {
       audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      audio.removeEventListener('durationchange', handleDurationChange);
-      audio.removeEventListener('canplay', handleCanPlay);
+      audio.removeEventListener('loadedmetadata', updateDuration);
+      audio.removeEventListener('durationchange', updateDuration);
+      audio.removeEventListener('loadeddata', updateDuration);
+      audio.removeEventListener('canplay', updateDuration);
+      audio.removeEventListener('canplaythrough', updateDuration);
       audio.removeEventListener('ended', handleEnded);
       audio.pause();
     };
@@ -424,11 +415,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // Load and play the track with token in URL
     const audioUrl = `${API_URL}/music/stream/${track.id}?token=${token}`;
     audio.src = audioUrl;
-    
+
+    // 🍎 iOS Safari FIX: Fetch duration from backend FIRST (more reliable than audio metadata)
+    fetch(`${API_URL}/duration/${track.id}?token=${token}`)
+      .then(response => response.json())
+      .then(data => {
+        if (data.duration && data.duration > 0) {
+          setDuration(data.duration);
+          console.log(`✅ Duration from backend: ${data.duration} seconds (${data.source})`);
+        }
+      })
+      .catch(error => {
+        console.log('⚠️ Could not fetch duration from backend, will rely on audio metadata:', error);
+      });
+
     // Force to 0 again after setting src
     audio.currentTime = 0;
     audio.pause(); // Pause again to be safe
-    
+
     // Set preload to auto to force full buffering
     audio.preload = 'auto';
     audio.load();

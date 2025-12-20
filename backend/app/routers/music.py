@@ -343,6 +343,98 @@ def get_track(
     
     return track
 
+@router.get("/duration/{track_id}")
+def get_track_duration(
+    track_id: int,
+    token: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get the duration of a track in seconds
+    🍎 iOS Safari FIX: Returns duration from database for reliable playback
+
+    Usage: /music/duration/1?token=your_jwt_token
+    """
+
+    # Validate token
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required"
+        )
+
+    try:
+        # Decode JWT token
+        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
+        username: str = payload.get("sub")
+
+        if username is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token"
+            )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token"
+        )
+
+    # Get track from database
+    track = db.query(Track).filter(Track.id == track_id).first()
+
+    if not track:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Track not found"
+        )
+
+    # Return duration if available
+    if track.duration and track.duration > 0:
+        return {
+            "duration": track.duration,
+            "source": "database"
+        }
+
+    # If duration not in database, try to read from file
+    try:
+        from mutagen import File as MutagenFile
+
+        if not os.path.exists(track.audio_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Audio file not found"
+            )
+
+        audio = MutagenFile(track.audio_path)
+        if audio and audio.info and hasattr(audio.info, 'length'):
+            duration = int(audio.info.length)
+
+            # Save to database for next time
+            track.duration = duration
+            db.commit()
+
+            return {
+                "duration": duration,
+                "source": "file_metadata"
+            }
+    except ImportError:
+        # mutagen not installed, return error
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Audio metadata reader not available"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not read duration: {str(e)}"
+        )
+
+    # No duration available
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Duration not available"
+    )
+
 @router.get("/tracks", response_model=list[TrackResponse])
 def list_tracks(
     skip: int = 0,
