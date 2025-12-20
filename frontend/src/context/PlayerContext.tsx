@@ -276,6 +276,34 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [currentTrack, isPlaying]); // Re-run when currentTrack or isPlaying changes
 
+  // 🎵 Media Session API - Update playback state
+  useEffect(() => {
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+      } catch (error) {
+        console.error('Failed to update media session playback state:', error);
+      }
+    }
+  }, [isPlaying]);
+
+  // 🎵 Media Session API - Update position state (for seek bar in OS controls)
+  useEffect(() => {
+    if ('mediaSession' in navigator && 'setPositionState' in navigator.mediaSession) {
+      try {
+        if (duration && !isNaN(duration) && isFinite(duration) && duration > 0) {
+          navigator.mediaSession.setPositionState({
+            duration: duration,
+            playbackRate: 1.0,
+            position: Math.min(currentTime, duration)
+          });
+        }
+      } catch (error) {
+        console.error('Failed to update media session position state:', error);
+      }
+    }
+  }, [currentTime, duration]);
+
   // Initialize audio element ONCE
   useEffect(() => {
     const audio = new Audio();
