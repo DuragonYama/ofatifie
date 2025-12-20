@@ -308,6 +308,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const audio = new Audio();
     audio.volume = volume;
+
+    // 🍎 iOS Safari CRITICAL: Set crossOrigin for CORS audio streaming
+    audio.crossOrigin = 'anonymous';
+
+    // 🍎 iOS Safari: Set preload to metadata to force duration loading
+    audio.preload = 'metadata';
+
     audioRef.current = audio;
 
     // Time update listener
@@ -315,9 +322,28 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setCurrentTime(audio.currentTime);
     };
 
-    // Duration change listener
+    // Duration change listener - fires when metadata loads
     const handleLoadedMetadata = () => {
-      setDuration(audio.duration);
+      console.log('🎵 Metadata loaded - Duration:', audio.duration);
+      if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
+        setDuration(audio.duration);
+      }
+    };
+
+    // 🍎 iOS Safari fallback: durationchange event (more reliable on iOS)
+    const handleDurationChange = () => {
+      console.log('🎵 Duration changed - Duration:', audio.duration);
+      if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
+        setDuration(audio.duration);
+      }
+    };
+
+    // 🍎 iOS Safari: Additional event to catch when audio can play
+    const handleCanPlay = () => {
+      console.log('🎵 Can play - Duration:', audio.duration);
+      if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
+        setDuration(audio.duration);
+      }
     };
 
     // Track ended listener
@@ -334,11 +360,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('durationchange', handleDurationChange);
+    audio.addEventListener('canplay', handleCanPlay);
     audio.addEventListener('ended', handleEnded);
 
     return () => {
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('durationchange', handleDurationChange);
+      audio.removeEventListener('canplay', handleCanPlay);
       audio.removeEventListener('ended', handleEnded);
       audio.pause();
     };

@@ -302,11 +302,18 @@ def stream_track(
         'Accept-Ranges': 'bytes',
         'Content-Length': str(content_length),
         'Content-Type': content_type,
+        # 🍎 iOS Safari CRITICAL: Explicit CORS headers for audio streaming
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+        'Access-Control-Allow-Headers': 'Range, Authorization',
+        'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+        # 🍎 iOS Safari: Cache control for better metadata loading
+        'Cache-Control': 'public, max-age=3600',
     }
-    
+
     # Return 206 Partial Content if range requested, else 200
     status_code = 206 if range else 200
-    
+
     return StreamingResponse(
         file_iterator(),
         status_code=status_code,
@@ -828,8 +835,16 @@ def get_cover_art(
             detail="Cover art file not found"
         )
     
-    # Return the image
-    return FileResponse(cover_path, media_type="image/jpeg")
+    # Return the image with CORS headers for iOS Media Session API
+    return FileResponse(
+        cover_path,
+        media_type="image/jpeg",
+        headers={
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+            'Cache-Control': 'public, max-age=86400',  # Cache for 24 hours
+        }
+    )
 
 @router.post("/download/youtube", status_code=status.HTTP_202_ACCEPTED)
 async def download_from_youtube(
